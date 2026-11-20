@@ -37,14 +37,15 @@ export function AuthModal({
   useEffect(() => {
     if (open) {
       setMode(initialMode);
-      if (defaultPseudo && !username) {
-        setUsername(defaultPseudo);
-      }
-      if (defaultPseudo && !guestName) {
-        setGuestName(defaultPseudo);
-      }
     }
-  }, [open, initialMode, defaultPseudo, username, guestName]);
+  }, [open, initialMode]);
+
+  useEffect(() => {
+    if (defaultPseudo) {
+      setUsername((prev) => prev || defaultPseudo);
+      setGuestName((prev) => prev || defaultPseudo);
+    }
+  }, [defaultPseudo]);
 
   useEffect(() => {
     if (!open) return;
