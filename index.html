@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr" data-theme="atelier">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Super Morpion — Duel stratégique 1v1</title>
+    <meta
+      name="description"
+      content="Super Morpion (Ultimate Tic-Tac-Toe) 1v1 en ligne entre joueurs humains. Duel privé, matchmaking rapide et classement Elo."
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F4EFE6'/%3E%3Crect x='3.5' y='3.5' width='25' height='25' rx='4' fill='%23FBF9F4' stroke='%23DDD4C4' stroke-width='1.5'/%3E%3Cpath d='M12 5.5v21M20 5.5v21M5.5 12h21M5.5 20h21' stroke='%23DDD4C4' stroke-width='1.5' stroke-linecap='round'/%3E%3Cpath d='M7.2 7.2l3.1 3.1M10.3 7.2l-3.1 3.1' stroke='%231D5B42' stroke-width='1.8' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2.1' fill='none' stroke='%236F452E' stroke-width='1.8'/%3E%3Crect x='21.5' y='21.5' width='5' height='5' rx='1.2' fill='%23C88A2E' fill-opacity='0.28' stroke='%23C88A2E' stroke-width='1.3'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('sm_theme');
+          if (
+            saved === 'atelier' ||
+            saved === 'argile' ||
+            saved === 'bordeaux' ||
+            saved === 'travertin' ||
+            saved === 'kyoto' ||
+            saved === 'nocturne' ||
+            saved === 'emeraude' ||
+            saved === 'obsidienne'
+          ) {
+            document.documentElement.setAttribute('data-theme', saved);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

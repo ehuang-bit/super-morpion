@@ -1,0 +1,13 @@
+"$schema" = "https://open-api.netlify.com/netlify.schema.json"
+
+[build]
+  command = "npm run build:client"
+  publish = "dist"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

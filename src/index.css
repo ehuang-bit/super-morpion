@@ -1,0 +1,355 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+:root[data-theme='atelier'] {
+  --bg-canvas: #F4EFE6;
+  --bg-board: #FBF9F4;
+  --bg-surface: #F7F3EA;
+  --bg-surface-hover: #EFE9DD;
+  --bg-recessed: #EDE6DA;
+  --border-main: #DDD4C4;
+  --border-cell: #E7DFD1;
+  --border-strong: #C9BDAA;
+  --text-primary: #1F1D19;
+  --text-secondary: #585046;
+  --text-muted: #6B6256;
+  --btn-primary-bg: #1F1D19;
+  --btn-primary-hover: #322E27;
+  --btn-primary-text: #FBF9F4;
+  --x-color: #1D5B42;
+  --x-surface: #E3EFE9;
+  --o-color: #6F452E;
+  --o-surface: #EFE6DE;
+  --draw-surface: #E9E2D5;
+  --accent-active: #C88A2E;
+  --accent-active-bg: rgba(200, 138, 46, 0.14);
+  --accent-active-text: #8A580F;
+  --danger-color: #B44332;
+  --danger-bg: rgba(180, 67, 50, 0.1);
+  --shadow-card: 0 1px 2px rgba(31, 29, 25, 0.05), 0 6px 20px rgba(31, 29, 25, 0.05);
+  --shadow-board: 0 2px 6px rgba(31, 29, 25, 0.06), 0 14px 36px rgba(31, 29, 25, 0.07);
+  --shadow-active: 0 4px 12px rgba(200, 138, 46, 0.16);
+}
+
+:root[data-theme='argile'] {
+  --bg-canvas: #EFECE6;
+  --bg-board: #FAFAF7;
+  --bg-surface: #F4F1EB;
+  --bg-surface-hover: #EAE5DC;
+  --bg-recessed: #E5E0D6;
+  --border-main: #D6D0C4;
+  --border-cell: #E4DFD4;
+  --border-strong: #BEB6A7;
+  --text-primary: #1E2326;
+  --text-secondary: #4E5559;
+  --text-muted: #636A6E;
+  --btn-primary-bg: #1E2326;
+  --btn-primary-hover: #2E363A;
+  --btn-primary-text: #FAFAF7;
+  --x-color: #264653;
+  --x-surface: #E4EDF0;
+  --o-color: #C85A38;
+  --o-surface: #F8E6DF;
+  --draw-surface: #E7E3DA;
+  --accent-active: #D99B26;
+  --accent-active-bg: rgba(217, 155, 38, 0.14);
+  --accent-active-text: #8B5E0B;
+  --danger-color: #B63E2E;
+  --danger-bg: rgba(182, 62, 46, 0.1);
+  --shadow-card: 0 1px 2px rgba(30, 35, 38, 0.05), 0 6px 20px rgba(30, 35, 38, 0.05);
+  --shadow-board: 0 2px 6px rgba(30, 35, 38, 0.06), 0 14px 36px rgba(30, 35, 38, 0.07);
+  --shadow-active: 0 4px 12px rgba(217, 155, 38, 0.18);
+}
+
+:root[data-theme='nocturne'] {
+  --bg-canvas: #171614;
+  --bg-board: #21201D;
+  --bg-surface: #282622;
+  --bg-surface-hover: #312E29;
+  --bg-recessed: #1B1A17;
+  --border-main: #34312B;
+  --border-cell: #2C2924;
+  --border-strong: #4A463D;
+  --text-primary: #EFECE6;
+  --text-secondary: #B9B2A6;
+  --text-muted: #8F887D;
+  --btn-primary-bg: #EFECE6;
+  --btn-primary-hover: #DED8CE;
+  --btn-primary-text: #171614;
+  --x-color: #63B995;
+  --x-surface: #1C2E26;
+  --o-color: #D9B99B;
+  --o-surface: #2E2720;
+  --draw-surface: #292722;
+  --accent-active: #D48C5E;
+  --accent-active-bg: rgba(212, 140, 94, 0.16);
+  --accent-active-text: #E9AA82;
+  --danger-color: #DF6B57;
+  --danger-bg: rgba(223, 107, 87, 0.14);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-board: 0 2px 8px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.35);
+  --shadow-active: 0 4px 14px rgba(0, 0, 0, 0.38);
+}
+
+:root[data-theme='kyoto'] {
+  --bg-canvas: #F3EFE7;
+  --bg-board: #FAF7F1;
+  --bg-surface: #F2EDE3;
+  --bg-surface-hover: #E9E2D5;
+  --bg-recessed: #EAE3D6;
+  --border-main: #D9D0C1;
+  --border-cell: #E5DDD0;
+  --border-strong: #BEB3A1;
+  --text-primary: #1A2029;
+  --text-secondary: #4C5460;
+  --text-muted: #636B76;
+  --btn-primary-bg: #1A2029;
+  --btn-primary-hover: #2C3542;
+  --btn-primary-text: #FAF7F1;
+  --x-color: #283B5B;
+  --x-surface: #E5EAF2;
+  --o-color: #A65E3A;
+  --o-surface: #F3E6DF;
+  --draw-surface: #E6DFD2;
+  --accent-active: #C7513D;
+  --accent-active-bg: rgba(199, 81, 61, 0.14);
+  --accent-active-text: #9E3929;
+  --danger-color: #B63829;
+  --danger-bg: rgba(182, 56, 41, 0.11);
+  --shadow-card: 0 1px 2px rgba(26, 32, 41, 0.05), 0 6px 20px rgba(26, 32, 41, 0.05);
+  --shadow-board: 0 2px 6px rgba(26, 32, 41, 0.06), 0 14px 36px rgba(26, 32, 41, 0.07);
+  --shadow-active: 0 4px 12px rgba(199, 81, 61, 0.18);
+}
+
+:root[data-theme='emeraude'] {
+  --bg-canvas: #121716;
+  --bg-board: #19211F;
+  --bg-surface: #212A27;
+  --bg-surface-hover: #2A3531;
+  --bg-recessed: #151C1A;
+  --border-main: #2B3835;
+  --border-cell: #24302D;
+  --border-strong: #3E504B;
+  --text-primary: #ECF2F0;
+  --text-secondary: #B4C2BD;
+  --text-muted: #85948F;
+  --btn-primary-bg: #ECF2F0;
+  --btn-primary-hover: #D5E0DC;
+  --btn-primary-text: #121716;
+  --x-color: #54B88A;
+  --x-surface: #182F26;
+  --o-color: #E0C38A;
+  --o-surface: #2D281D;
+  --draw-surface: #222B28;
+  --accent-active: #D1A24B;
+  --accent-active-bg: rgba(209, 162, 75, 0.16);
+  --accent-active-text: #E6BE73;
+  --danger-color: #E06D58;
+  --danger-bg: rgba(224, 109, 88, 0.15);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.36), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-board: 0 2px 8px rgba(0, 0, 0, 0.42), 0 16px 40px rgba(0, 0, 0, 0.36);
+  --shadow-active: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme='bordeaux'] {
+  --bg-canvas: #F5F1EB;
+  --bg-board: #FCF9F5;
+  --bg-surface: #F3EDE5;
+  --bg-surface-hover: #EAE2D7;
+  --bg-recessed: #E8E0D4;
+  --border-main: #D9CFC2;
+  --border-cell: #E5DCD0;
+  --border-strong: #C0B3A3;
+  --text-primary: #221619;
+  --text-secondary: #564549;
+  --text-muted: #6C5A5E;
+  --btn-primary-bg: #2B161C;
+  --btn-primary-hover: #42222B;
+  --btn-primary-text: #FCF9F5;
+  --x-color: #6E2233;
+  --x-surface: #F4E4E8;
+  --o-color: #2B4958;
+  --o-surface: #E3ECF0;
+  --draw-surface: #E6DFD6;
+  --accent-active: #B38136;
+  --accent-active-bg: rgba(179, 129, 54, 0.15);
+  --accent-active-text: #7F5719;
+  --danger-color: #AD352D;
+  --danger-bg: rgba(173, 53, 45, 0.1);
+  --shadow-card: 0 1px 2px rgba(34, 22, 25, 0.05), 0 6px 20px rgba(34, 22, 25, 0.05);
+  --shadow-board: 0 2px 6px rgba(34, 22, 25, 0.06), 0 14px 36px rgba(34, 22, 25, 0.08);
+  --shadow-active: 0 4px 12px rgba(179, 129, 54, 0.18);
+}
+
+:root[data-theme='travertin'] {
+  --bg-canvas: #ECE8E0;
+  --bg-board: #F8F6F1;
+  --bg-surface: #EFECE5;
+  --bg-surface-hover: #E5E1D8;
+  --bg-recessed: #E3DFD5;
+  --border-main: #D2CCC0;
+  --border-cell: #DFDAD0;
+  --border-strong: #B8B1A3;
+  --text-primary: #1D241F;
+  --text-secondary: #4C554E;
+  --text-muted: #636C65;
+  --btn-primary-bg: #233328;
+  --btn-primary-hover: #324839;
+  --btn-primary-text: #F8F6F1;
+  --x-color: #32553E;
+  --x-surface: #E1ECE4;
+  --o-color: #6F3D4E;
+  --o-surface: #F1E4E8;
+  --draw-surface: #E4E0D6;
+  --accent-active: #B5822C;
+  --accent-active-bg: rgba(181, 130, 44, 0.15);
+  --accent-active-text: #7D5611;
+  --danger-color: #AD3A2E;
+  --danger-bg: rgba(173, 58, 46, 0.1);
+  --shadow-card: 0 1px 2px rgba(29, 36, 31, 0.05), 0 6px 20px rgba(29, 36, 31, 0.05);
+  --shadow-board: 0 2px 6px rgba(29, 36, 31, 0.06), 0 14px 36px rgba(29, 36, 31, 0.07);
+  --shadow-active: 0 4px 12px rgba(181, 130, 44, 0.18);
+}
+
+:root[data-theme='obsidienne'] {
+  --bg-canvas: #111214;
+  --bg-board: #191B1F;
+  --bg-surface: #21242A;
+  --bg-surface-hover: #2A2E36;
+  --bg-recessed: #14161A;
+  --border-main: #2D3139;
+  --border-cell: #262A31;
+  --border-strong: #434955;
+  --text-primary: #F1EFEA;
+  --text-secondary: #B8B5AD;
+  --text-muted: #8B8983;
+  --btn-primary-bg: #DFC286;
+  --btn-primary-hover: #ECD29C;
+  --btn-primary-text: #141517;
+  --x-color: #7BB0CA;
+  --x-surface: #1A2730;
+  --o-color: #DFC080;
+  --o-surface: #2B251A;
+  --draw-surface: #23262C;
+  --accent-active: #D19A4B;
+  --accent-active-bg: rgba(209, 154, 75, 0.16);
+  --accent-active-text: #E9BA72;
+  --danger-color: #E0705E;
+  --danger-bg: rgba(224, 112, 94, 0.15);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.34);
+  --shadow-board: 0 2px 8px rgba(0, 0, 0, 0.48), 0 18px 42px rgba(0, 0, 0, 0.42);
+  --shadow-active: 0 4px 14px rgba(0, 0, 0, 0.44);
+}
+
+.no-transitions *,
+.no-transitions *::before,
+.no-transitions *::after {
+  transition: none !important;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  button,
+  input {
+    font-family: inherit;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tactile-btn {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease;
+}
+
+.tactile-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.tactile-btn:focus-visible,
+.tactile-input:focus-visible,
+.board-cell:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.board-cell-playable {
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.board-cell-playable:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.subboard-shell {
+  transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.board-material-gravure {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .board-cell-playable:hover {
+    background-color: var(--bg-surface-hover);
+  }
+}
+
+.board-shell {
+  --board-size: clamp(300px, min(calc(100vw - 32px), calc(100dvh - 240px)), 500px);
+  width: var(--board-size);
+  height: var(--board-size);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .board-shell {
+    --board-size: clamp(276px, min(calc(100vw - 20px), calc(100dvh - 280px)), 404px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .board-shell {
+    --board-size: clamp(320px, min(calc(100vw - 636px), calc(100dvh - 172px)), 540px);
+  }
+
+  .board-shell.board-shell-arena {
+    --board-size: clamp(340px, min(calc(100vw - 300px), calc(100dvh - 196px)), 556px);
+  }
+}
