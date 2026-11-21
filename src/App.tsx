@@ -6,7 +6,7 @@ import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
 import { MOVE_TIME_LIMIT_MS, type TimeControl } from '@shared/protocol';
 import { CheckCircle2, Flag, LogOut, RotateCcw } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
-import { BoardCustomizeModal } from './components/BoardCustomizeModal';
+import { CustomizeView } from './components/CustomizeView';
 import { GameEndBanner } from './components/GameEndBanner';
 import { GlobalBoard } from './components/GlobalBoard';
 import { LeaderboardView } from './components/LeaderboardView';
@@ -89,7 +89,6 @@ export function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tutorialRequest, setTutorialRequest] = useState(0);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [confirmResign, setConfirmResign] = useState(false);
   const [routeRoomCode, setRouteRoomCode] = useState<string | null>(() =>
@@ -451,12 +450,28 @@ export function App() {
       ? 'stats'
       : activeTab === 'leaderboard'
         ? 'leaderboard'
-        : inMatchView
-          ? `match-${onlineGame.snapshot?.code ?? ''}`
-          : 'home';
+        : activeTab === 'customize'
+          ? 'customize'
+          : inMatchView
+            ? `match-${onlineGame.snapshot?.code ?? ''}`
+            : 'home';
 
   const renderMainView = () => {
-    // 0. Classement général
+    // 0. Couleurs & personnalisation du plateau
+    if (activeTab === 'customize') {
+      return (
+        <CustomizeView
+          theme={theme}
+          onChangeTheme={handleChangeTheme}
+          boardPrefs={boardPrefs}
+          onChangeBoardPrefs={handleChangeBoardPrefs}
+          inActiveMatch={inActiveMatch}
+          onBackToPlay={() => setActiveTab('play')}
+        />
+      );
+    }
+
+    // 1. Classement général
     if (activeTab === 'leaderboard') {
       return (
         <LeaderboardView
@@ -749,8 +764,6 @@ export function App() {
         timeControl={timeControl}
         onChangeTimeControl={setTimeControl}
         playerElo={onlineGame.playerElo}
-        theme={theme}
-        onChangeTheme={handleChangeTheme}
         boardPrefs={boardPrefs}
         connected={onlineGame.connected}
         connectionStatus={onlineGame.connectionStatus}
@@ -774,7 +787,6 @@ export function App() {
           })
         }
         onCancelWaitingOrPrompt={handleLeaveOnline}
-        onOpenCustomize={() => setCustomizeOpen(true)}
         onOpenStats={() => setActiveTab('stats')}
         onOpenAuth={() => setAuthModalOpen(true)}
         tutorialRequest={tutorialRequest}
@@ -787,7 +799,6 @@ export function App() {
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
-        onOpenCustomize={() => setCustomizeOpen(true)}
         onOpenRules={() => setRulesOpen(true)}
         onOpenAuth={() => setAuthModalOpen(true)}
         onLogout={() => void auth.logout()}
@@ -858,15 +869,6 @@ export function App() {
         timeControl={onlineGame.matchmaking.timeControl}
         queueSize={onlineGame.matchmaking.queueSize}
         onCancel={onlineGame.cancelMatchmaking}
-      />
-
-      <BoardCustomizeModal
-        open={customizeOpen}
-        onClose={() => setCustomizeOpen(false)}
-        theme={theme}
-        onChangeTheme={handleChangeTheme}
-        boardPrefs={boardPrefs}
-        onChangeBoardPrefs={handleChangeBoardPrefs}
       />
 
       <RulesModal

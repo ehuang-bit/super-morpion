@@ -36,7 +36,10 @@ export function MobileTabBar({ activeTab, menuOpen, onSelectTab, onOpenMenu }: M
     >
       <LayoutGroup id="mobile-tabbar">
         {TABS.map((tab) => {
-          const active = tab.id === 'menu' ? menuOpen : !menuOpen && activeTab === tab.id;
+          const active =
+            tab.id === 'menu'
+              ? menuOpen || activeTab === 'customize'
+              : !menuOpen && activeTab === tab.id;
           const Icon = tab.icon;
           return (
             <button

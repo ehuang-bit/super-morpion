@@ -19,7 +19,7 @@ interface GlobalBoardProps {
   gameState: GameState;
   canInteract: boolean;
   boardPrefs?: BoardPreferences;
-  variant?: 'lobby' | 'arena';
+  variant?: 'lobby' | 'arena' | 'preview';
   /** Case mise en évidence (tutoriel). */
   hintMove?: Move | null;
   onPlayMove: (move: Move) => void;
@@ -150,12 +150,17 @@ export function GlobalBoard({
   const materialClass =
     boardPrefs.boardMaterial === 'gravure' ? 'board-material-gravure' : '';
 
-  const arenaClass = variant === 'arena' ? 'board-shell-arena' : '';
+  const variantClass =
+    variant === 'arena'
+      ? 'board-shell-arena'
+      : variant === 'preview'
+        ? 'board-shell-preview'
+        : '';
 
   return (
     <div
       ref={shellRef}
-      className={`board-shell ${arenaClass} relative mx-auto box-border overflow-hidden ${shellRadius} ${materialClass} p-2 sm:p-2.5 transition-[border-radius] duration-200`}
+      className={`board-shell ${variantClass} relative mx-auto box-border overflow-hidden ${shellRadius} ${materialClass} p-2 sm:p-2.5 transition-[border-radius] duration-200`}
       style={{
         backgroundColor: 'var(--bg-recessed)',
         border: '1px solid var(--border-main)',
@@ -163,7 +168,7 @@ export function GlobalBoard({
       }}
       onPointerLeave={() => handleHoverMove(null)}
     >
-      <LayoutGroup id="super-morpion-board">
+      <LayoutGroup id={`super-morpion-board-${variant}`}>
         <div className="grid grid-cols-3 grid-rows-3 w-full h-full min-h-0 min-w-0 gap-1.5 sm:gap-2">
           {gameState.boards.map((subBoard, boardIndex) => {
             const isActiveTarget =

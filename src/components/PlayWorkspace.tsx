@@ -28,18 +28,11 @@ import {
   LogIn,
   MonitorSmartphone,
   RotateCcw,
-  SlidersHorizontal,
   Swords,
   UserCheck,
 } from 'lucide-react';
 import type { ConnectionStatus } from '../hooks/useOnlineGame';
 import type { BoardPreferences } from '../types/boardPrefs';
-import {
-  THEMES,
-  getOriginFromElement,
-  type ThemeId,
-  type ThemeTransitionOrigin,
-} from '../types/theme';
 import { normalizeRoomCode } from '../utils/format';
 import { haptics } from '../utils/haptics';
 import { CHIP_SPRING } from '../utils/motion';
@@ -60,8 +53,6 @@ interface PlayWorkspaceProps {
     profile: EloProfile;
     tier: string;
   };
-  theme: ThemeId;
-  onChangeTheme: (theme: ThemeId, origin?: ThemeTransitionOrigin) => void;
   boardPrefs: BoardPreferences;
   connected: boolean;
   connectionStatus: ConnectionStatus;
@@ -76,7 +67,6 @@ interface PlayWorkspaceProps {
   onJoinCode: (code: string) => void;
   onJoinMatchmaking: () => void;
   onCancelWaitingOrPrompt: () => void;
-  onOpenCustomize: () => void;
   onOpenStats: () => void;
   onOpenAuth: () => void;
   /** Incrémenté pour lancer le tutoriel depuis l'extérieur (fenêtre des règles). */
@@ -114,8 +104,6 @@ export function PlayWorkspace({
   timeControl,
   onChangeTimeControl,
   playerElo,
-  theme,
-  onChangeTheme,
   boardPrefs,
   connected,
   connectionStatus,
@@ -130,7 +118,6 @@ export function PlayWorkspace({
   onJoinCode,
   onJoinMatchmaking,
   onCancelWaitingOrPrompt,
-  onOpenCustomize,
   onOpenStats,
   onOpenAuth,
   tutorialRequest,
@@ -887,92 +874,6 @@ export function PlayWorkspace({
                   </p>
                 )}
               </motion.div>
-
-              {/* Couleurs du plateau : seul sélecteur de thème de l'accueil */}
-              <div
-                className="rounded-[16px] p-3.5 flex flex-col gap-2.5"
-                style={{
-                  backgroundColor: 'var(--bg-board)',
-                  border: '1px solid var(--border-main)',
-                  boxShadow: 'var(--shadow-card)',
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <span
-                    className="text-xs font-bold"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    Couleurs du plateau
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onOpenCustomize}
-                    className="tactile-btn inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-cell)',
-                    }}
-                  >
-                    <SlidersHorizontal className="w-3 h-3" />
-                    <span>Pièces et matières</span>
-                  </button>
-                </div>
-
-                <LayoutGroup id="theme-home">
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {THEMES.map((item) => {
-                      const selected = item.id === theme;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={(e) =>
-                            onChangeTheme(item.id, getOriginFromElement(e.currentTarget))
-                          }
-                          aria-pressed={selected}
-                          title={`${item.label} — ${item.description}`}
-                          className="tactile-btn relative rounded-[9px] px-2 py-1.5 flex flex-col items-center gap-1 text-center"
-                          style={{
-                            backgroundColor: selected
-                              ? 'var(--bg-recessed)'
-                              : 'var(--bg-surface)',
-                            color: 'var(--text-primary)',
-                            border: '1.5px solid var(--border-cell)',
-                          }}
-                        >
-                          {selected && (
-                            <motion.span
-                              layoutId="theme-home-ring"
-                              transition={CHIP_SPRING}
-                              aria-hidden="true"
-                              className="pointer-events-none absolute -inset-[1.5px] rounded-[9px]"
-                              style={{ border: '1.5px solid var(--accent-active)' }}
-                            />
-                          )}
-                          <span className="relative z-10 inline-flex items-center -space-x-1">
-                            <span
-                              className="w-2.5 h-2.5 rounded-full border border-black/15"
-                              style={{ backgroundColor: item.swatches.canvas }}
-                            />
-                            <span
-                              className="w-2.5 h-2.5 rounded-full border border-black/15"
-                              style={{ backgroundColor: item.swatches.x }}
-                            />
-                            <span
-                              className="w-2.5 h-2.5 rounded-full border border-black/15"
-                              style={{ backgroundColor: item.swatches.o }}
-                            />
-                          </span>
-                          <span className="relative z-10 text-[11px] font-semibold truncate w-full">
-                            {item.label.split(' ')[0]}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </LayoutGroup>
-              </div>
             </>
           )}
         </aside>

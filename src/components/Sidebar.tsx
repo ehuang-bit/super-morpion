@@ -7,7 +7,7 @@ import {
   LogIn,
   LogOut,
   Menu,
-  SlidersHorizontal,
+  Palette,
   Swords,
   Trophy,
   UserCheck,
@@ -19,12 +19,11 @@ import {
 } from 'lucide-react';
 import { CHIP_SPRING, SMOOTH_EASE } from '../utils/motion';
 
-export type NavTab = 'play' | 'stats' | 'leaderboard';
+export type NavTab = 'play' | 'stats' | 'leaderboard' | 'customize';
 
 interface SidebarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
-  onOpenCustomize: () => void;
   onOpenRules: () => void;
   onOpenAuth: () => void;
   onLogout: () => void;
@@ -43,20 +42,19 @@ interface SidebarProps {
   showMobileMenuButton: boolean;
 }
 
-type NavItemId = NavTab | 'customize' | 'rules';
+type NavItemId = NavTab | 'rules';
 
 const NAV_ITEMS: readonly { id: NavItemId; label: string; icon: LucideIcon }[] = [
   { id: 'play', label: 'Plateau & Duel', icon: Swords },
   { id: 'stats', label: 'Mes statistiques', icon: BarChart3 },
   { id: 'leaderboard', label: 'Classement général', icon: Trophy },
-  { id: 'customize', label: 'Personnaliser le plateau', icon: SlidersHorizontal },
+  { id: 'customize', label: 'Couleurs & plateau', icon: Palette },
   { id: 'rules', label: 'Règles en 15s', icon: BookOpen },
 ];
 
 export function Sidebar({
   activeTab,
   onSelectTab,
-  onOpenCustomize,
   onOpenRules,
   onOpenAuth,
   onLogout,
@@ -112,17 +110,14 @@ export function Sidebar({
         {/* Navigation links */}
         <nav className="flex flex-col gap-1" aria-label="Navigation principale">
           {NAV_ITEMS.map((item) => {
-            const active =
-              (item.id === 'play' || item.id === 'stats' || item.id === 'leaderboard') &&
-              activeTab === item.id;
+            const active = item.id !== 'rules' && activeTab === item.id;
             const Icon = item.icon;
             return (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => {
-                  if (item.id === 'customize') onOpenCustomize();
-                  else if (item.id === 'rules') onOpenRules();
+                  if (item.id === 'rules') onOpenRules();
                   else onSelectTab(item.id);
                   closeMobile?.();
                 }}
