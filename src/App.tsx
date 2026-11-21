@@ -16,6 +16,7 @@ import { DailyPuzzleView } from './components/DailyPuzzleView';
 import { EmoteBar } from './components/EmoteBar';
 import { GameEndBanner } from './components/GameEndBanner';
 import { GlobalBoard } from './components/GlobalBoard';
+import { LaunchSplash } from './components/LaunchSplash';
 import { LeaderboardView } from './components/LeaderboardView';
 import { MatchIntro } from './components/MatchIntro';
 import { MatchOutcome, type OutcomeKind } from './components/MatchOutcome';
@@ -121,7 +122,9 @@ export function App() {
 
   const onlineGame = useOnlineGame(playerId, profileId, auth.token);
 
-  const activePseudo = auth.user?.username || pseudo.trim() || 'Joueur 1';
+  // Compte connecté : le nom en partie personnalisé prime sur le pseudo du compte
+  const activePseudo =
+    auth.user?.gameName || auth.user?.username || pseudo.trim() || 'Joueur 1';
 
   // Keep pseudo synced when user logs in
   useEffect(() => {
@@ -240,6 +243,9 @@ export function App() {
   // Moments forts : présentation des joueurs au lancement, séquence de fin.
   // Rien n'est joué si le système demande de réduire les animations.
   const reduceMotion = useReducedMotion();
+  // Animation d'ouverture : une fois par chargement du site
+  const [splashVisible, setSplashVisible] = useState(true);
+  const handleSplashDone = useCallback(() => setSplashVisible(false), []);
   const [intro, setIntro] = useState<{ key: string; endsAt: number } | null>(null);
   const [outcome, setOutcome] = useState<{ key: string; kind: OutcomeKind } | null>(null);
   const [outcomeAnimatedKey, setOutcomeAnimatedKey] = useState<string | null>(null);
@@ -964,6 +970,7 @@ export function App() {
         localPlayerId={playerId}
         pseudo={pseudo}
         onChangePseudo={handleChangePseudo}
+        onSaveGameName={auth.changeGameName}
         timeControl={timeControl}
         onChangeTimeControl={setTimeControl}
         playerElo={onlineGame.playerElo}
@@ -1174,7 +1181,10 @@ export function App() {
               key={outcome.key}
               kind={outcome.kind}
               inkColor={
-                winner === 'X'
+                // Une défaite se vit en rouge, quelle que soit la couleur de l'adversaire
+                outcome.kind === 'loss'
+                  ? 'var(--danger-color)'
+                  : winner === 'X'
                   ? 'var(--x-color)'
                   : winner === 'O'
                     ? 'var(--o-color)'
@@ -1191,6 +1201,8 @@ export function App() {
             />
           );
         })()}
+
+      {splashVisible && !reduceMotion && <LaunchSplash onDone={handleSplashDone} />}
 
       {DemoPanel && (
         <Suspense fallback={null}>

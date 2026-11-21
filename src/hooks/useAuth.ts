@@ -346,6 +346,24 @@ export function useAuth(profileId: string) {
     [token],
   );
 
+  /** Nom affiché en partie ; une chaîne vide rétablit le pseudo du compte. */
+  const changeGameName = useCallback(
+    async (gameName: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!token) return { ok: false, error: 'Connexion requise.' };
+      const json = await postJson<{ user: AuthUser }>(
+        '/auth/game-name',
+        { gameName },
+        token,
+      );
+      if (!json.ok || !json.data) {
+        return { ok: false, error: json.error ?? 'Impossible d’enregistrer ce nom.' };
+      }
+      setUser(json.data.user);
+      return { ok: true };
+    },
+    [token],
+  );
+
   const finishOnboarding = useCallback(() => setOnboarding(null), []);
   const clearStreakNotice = useCallback(() => setStreakNotice(null), []);
 
@@ -437,6 +455,7 @@ export function useAuth(profileId: string) {
     sendEmailLink,
     completeEmailLink,
     changeUsername,
+    changeGameName,
     recordStreakActivity,
     refreshSession,
     toggleDemoAccount,

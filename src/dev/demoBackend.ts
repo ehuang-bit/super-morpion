@@ -126,6 +126,7 @@ const state = {
   account: null as {
     id: string;
     username: string;
+    gameName?: string | null;
     createdAt: number;
     streak: StoredStreakState;
   } | null,
@@ -541,6 +542,7 @@ function buildDemoAuthUser(now: number): AuthUser | null {
   return {
     id: state.account.id,
     username: state.account.username,
+    gameName: state.account.gameName ?? null,
     createdAt: state.account.createdAt,
     provider: 'password',
     avatarUrl: null,
@@ -561,7 +563,7 @@ function ensureDemoAccount(username: string, now: number) {
     state.account.username = clean;
   }
   state.accountToken = DEMO_AUTH_TOKEN;
-  state.humanPseudo = state.account.username;
+  state.humanPseudo = state.account.gameName || state.account.username;
   return state.account;
 }
 
@@ -735,6 +737,19 @@ function route(
     }
     state.account.username = nextName;
     state.humanPseudo = nextName;
+    return { ok: true, data: { user: buildDemoAuthUser(now) } };
+  }
+  if (path === '/auth/game-name' && method === 'POST') {
+    if (!isAuthed || !state.account) {
+      return { ok: false, error: 'Connexion requise.' };
+    }
+    const nextName =
+      typeof body.gameName === 'string' ? body.gameName.replace(/\s+/g, ' ').trim() : '';
+    if (nextName.length === 1) {
+      return { ok: false, error: 'Le nom en partie doit contenir au moins 2 caractères.' };
+    }
+    state.account.gameName = nextName ? nextName.slice(0, 20) : null;
+    state.humanPseudo = state.account.gameName || state.account.username;
     return { ok: true, data: { user: buildDemoAuthUser(now) } };
   }
   if (path === '/auth/logout' && method === 'POST') {

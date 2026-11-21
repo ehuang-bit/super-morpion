@@ -46,6 +46,7 @@ import { haptics } from '../utils/haptics';
 import { CHIP_SPRING, SMOOTH_EASE } from '../utils/motion';
 import { soundEngine } from '../utils/soundEngine';
 import { getTutorialSeen, saveTutorialSeen } from '../utils/storage';
+import { GameNameField } from './GameNameField';
 import { GlobalBoard } from './GlobalBoard';
 import { JoinPrompt } from './JoinPrompt';
 import { StreakPill } from './StreakBadge';
@@ -57,6 +58,8 @@ interface PlayWorkspaceProps {
   localPlayerId: string;
   pseudo: string;
   onChangePseudo: (value: string) => void;
+  /** Enregistre le nom en partie du compte connecté (vide = pseudo du compte). */
+  onSaveGameName: (gameName: string) => Promise<{ ok: boolean; error?: string }>;
   timeControl: TimeControl;
   onChangeTimeControl: (tc: TimeControl) => void;
   playerElo: {
@@ -119,6 +122,7 @@ export function PlayWorkspace({
   localPlayerId,
   pseudo,
   onChangePseudo,
+  onSaveGameName,
   timeControl,
   onChangeTimeControl,
   playerElo,
@@ -688,6 +692,16 @@ export function PlayWorkspace({
                     </div>
                   )}
                 </div>
+
+                {/* Compte connecté : nom affiché en partie, distinct du pseudo du compte */}
+                {user && (
+                  <GameNameField
+                    username={user.username}
+                    gameName={user.gameName ?? null}
+                    onSave={onSaveGameName}
+                    disabled={matchmaking.searching}
+                  />
+                )}
 
                 {/* Pseudo, pour les invités seulement */}
                 {!user && (

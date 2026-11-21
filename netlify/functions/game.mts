@@ -242,6 +242,27 @@ function validateUsername(
   };
 }
 
+/** Nom affiché en partie : mêmes caractères qu'un pseudo, sans unicité. Vide = aucun. */
+function validateGameName(
+  raw: string,
+): { ok: true; gameName: string | null } | { ok: false; error: string } {
+  const cleaned = String(raw).replace(/\s+/g, ' ').trim();
+  if (cleaned.length === 0) return { ok: true, gameName: null };
+  if (cleaned.length < 2) {
+    return { ok: false, error: 'Le nom en partie doit contenir au moins 2 caractères.' };
+  }
+  if (cleaned.length > 20) {
+    return { ok: false, error: 'Le nom en partie est limité à 20 caractères.' };
+  }
+  if (!/^[\p{L}\p{N}_ -]{2,20}$/u.test(cleaned)) {
+    return {
+      ok: false,
+      error: 'Utilisez uniquement des lettres, chiffres, espaces, tirets ou _.',
+    };
+  }
+  return { ok: true, gameName: cleaned };
+}
+
 function extractBearerToken(req: Request): string | null {
   const raw = req.headers.get('authorization');
   if (!raw) return null;
@@ -340,7 +361,7 @@ async function resolveAuthUser(
   const token = extractBearerToken(req);
   if (!token) return null;
   const res = await queryable.query(
-    `SELECT u.id, u.username, u.created_at, u.auth_provider, u.avatar_url,
+    `SELECT u.id, u.username, u.game_name, u.created_at, u.auth_provider, u.avatar_url,
             u.streak_current, u.streak_best, u.streak_last_date,
             u.streak_total_days, u.streak_recent_dates
      FROM auth_sessions s
@@ -357,6 +378,7 @@ function rowToAuthUser(row: Record<string, unknown>, now = Date.now()): AuthUser
   return {
     id: String(row.id),
     username: String(row.username),
+    gameName: row.game_name ? String(row.game_name) : null,
     createdAt: Number(row.created_at),
     provider: (['password', 'google', 'apple', 'microsoft', 'email'].includes(provider)
       ? provider
@@ -435,7 +457,8 @@ async function resolveIdentity(
   if (user) {
     return {
       user,
-      pseudo: user.username,
+      // En partie, le nom personnalisé prime sur le pseudo du compte
+      pseudo: user.gameName || user.username,
       profileKey: `user:${user.id}`,
     };
   }
@@ -823,7 +846,7 @@ export default async (req: Request): Promise<Response> => {
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM auth_sessions WHERE expires_at < $1', [now]);
         const found = await client.query(
-          `SELECT id, username, created_at, auth_provider, avatar_url,
+          `SELECT id, username, game_name, created_at, auth_provider, avatar_url,
                   streak_current, streak_best, streak_last_date,
                   streak_total_days, streak_recent_dates
            FROM users WHERE provider_uid = $1`,
@@ -943,6 +966,28 @@ export default async (req: Request): Promise<Response> => {
       });
     }
 
+    // POST /api/game/auth/game-name — nom affiché en partie (compte connecté).
+    // Une valeur vide rétablit le pseudo du compte.
+    if (method === 'POST' && subPath === '/auth/game-name') {
+      const user = await resolveAuthUser(req, poolQuery, now);
+      if (!user) {
+        return jsonResponse({ ok: false, error: 'Connexion requise.' }, 401);
+      }
+      const body = await readJsonBody<{ gameName?: string | null }>(req);
+      const valid = validateGameName(body?.gameName ?? '');
+      if (!valid.ok) {
+        return jsonResponse({ ok: false, error: valid.error }, 400);
+      }
+      await poolQuery.query('UPDATE users SET game_name = $1 WHERE id = $2', [
+        valid.gameName,
+        user.id,
+      ]);
+      return jsonResponse({
+        ok: true,
+        data: { user: { ...user, gameName: valid.gameName } },
+      });
+    }
+
     // POST /api/game/auth/register
     if (method === 'POST' && subPath === '/auth/register') {
       const body = await readJsonBody<{
@@ -1051,7 +1096,7 @@ export default async (req: Request): Promise<Response> => {
       }
 
       const foundRes = await db.pool.query(
-        `SELECT id, username, password_hash, salt, created_at, auth_provider, avatar_url,
+        `SELECT id, username, game_name, password_hash, salt, created_at, auth_provider, avatar_url,
                 streak_current, streak_best, streak_last_date,
                 streak_total_days, streak_recent_dates
          FROM users

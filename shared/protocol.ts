@@ -191,7 +191,10 @@ export interface AccountStreak {
 
 export interface AuthUser {
   id: string;
+  /** Pseudo du compte : unique, sert à se connecter et figure au classement. */
   username: string;
+  /** Nom affiché en partie, choisi librement. Absent ou null : `username`. */
+  gameName?: string | null;
   createdAt: number;
   provider?: AuthProvider;
   avatarUrl?: string | null;
