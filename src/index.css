@@ -408,6 +408,20 @@
   }
 }
 
+/* Chrono du coup : dernières secondes */
+.turn-timer-urgent {
+  animation: turn-timer-urgent 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes turn-timer-urgent {
+  from {
+    stroke-width: 4px;
+  }
+  to {
+    stroke-width: 6.5px;
+  }
+}
+
 /* Entrée en scène du plateau */
 .board-shell {
   animation: board-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -462,6 +476,7 @@
   .board-shell,
   .board-shell .subboard-shell,
   .clock-urgent,
+  .turn-timer-urgent,
   .live-dot::after {
     animation: none !important;
   }

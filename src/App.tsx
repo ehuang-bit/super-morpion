@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
-import type { TimeControl } from '@shared/protocol';
+import { MOVE_TIME_LIMIT_MS, type TimeControl } from '@shared/protocol';
 import { CheckCircle2, Flag, LogOut, RotateCcw } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { BoardCustomizeModal } from './components/BoardCustomizeModal';
@@ -20,6 +20,8 @@ import { PlayWorkspace } from './components/PlayWorkspace';
 import { RulesModal } from './components/RulesModal';
 import { Sidebar, type NavTab } from './components/Sidebar';
 import { StatsView } from './components/StatsView';
+import { TurnTimer } from './components/TurnTimer';
+import { DEMO_MODE } from './dev/demoMode';
 import { useAuth } from './hooks/useAuth';
 import { useClockTick } from './hooks/useClockTick';
 import { useOnlineGame } from './hooks/useOnlineGame';
@@ -53,6 +55,10 @@ function extractRoomCodeFromPath(pathname: string): string | null {
 }
 
 const BASE_TITLE = 'Super Morpion — Duel stratégique 1v1';
+
+// Panneau du mode démo : développement uniquement, jamais dans le site en ligne
+const DemoPanel =
+  import.meta.env.DEV && DEMO_MODE ? lazy(() => import('./dev/DemoPanel')) : null;
 
 export function App() {
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
@@ -466,6 +472,7 @@ export function App() {
               preview={previewInfo.preview}
               hoveredMove={previewInfo.hoveredMove}
               pieceStyle={boardPrefs.pieceStyle}
+              moveTimeouts={snap.moveTimeouts}
             />
           </div>
 
@@ -493,6 +500,7 @@ export function App() {
                 matchWinner={snap.matchWinner}
                 preview={previewInfo.preview}
                 hoveredMove={previewInfo.hoveredMove}
+                moveTimeouts={snap.moveTimeouts}
               />
             </div>
 
@@ -504,6 +512,15 @@ export function App() {
                 variant="arena"
                 onPlayMove={onlineGame.playMove}
                 onPreviewChange={handlePreviewChange}
+              />
+              <TurnTimer
+                turnStartedAt={snap.turnStartedAt}
+                limitMs={snap.moveTimeLimitMs ?? MOVE_TIME_LIMIT_MS}
+                clockOffsetMs={onlineGame.clockOffsetMs}
+                activePlayer={snap.gameState.currentPlayer}
+                isSelfTurn={canInteract}
+                running={snap.phase === 'playing'}
+                strictCorners={boardPrefs.boardShape === 'strict'}
               />
               {snap.phase === 'finished' && (
                 <GameEndBanner
@@ -736,6 +753,12 @@ export function App() {
       />
 
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+
+      {DemoPanel && (
+        <Suspense fallback={null}>
+          <DemoPanel />
+        </Suspense>
+      )}
     </div>
   );
 }

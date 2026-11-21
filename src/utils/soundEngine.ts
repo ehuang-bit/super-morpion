@@ -147,6 +147,37 @@ class SoundEngine {
   }
 
   /**
+   * Compte à rebours des dernières secondes du coup : un battement sec, de
+   * plus en plus aigu, doublé sur la dernière seconde.
+   */
+  public playCountdownTick(secondsLeft: number): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const freq = 620 + Math.max(0, 5 - secondsLeft) * 85;
+    const hits = secondsLeft <= 1 ? [0, 0.11] : [0];
+
+    hits.forEach((offset) => {
+      const start = now + offset;
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, start);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.82, start + 0.09);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.11, start + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.1);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.12);
+    });
+  }
+
+  /**
    * Calm neutral interval on global draw.
    */
   public playDraw(): void {

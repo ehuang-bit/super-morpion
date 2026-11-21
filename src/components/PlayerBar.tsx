@@ -267,6 +267,8 @@ interface TacticalStatusStripProps {
   preview: DestinationPreview | null;
   hoveredMove: Move | null;
   showDesktopMeta?: boolean;
+  /** Dépassements d'affilée du temps par coup, pour chaque joueur. */
+  moveTimeouts?: { X: number; O: number } | null;
 }
 
 export function TacticalStatusStrip({
@@ -282,6 +284,7 @@ export function TacticalStatusStrip({
   preview,
   hoveredMove,
   showDesktopMeta = false,
+  moveTimeouts = null,
 }: TacticalStatusStripProps) {
   const activeSymbol = gameState.currentPlayer;
   const activePlayerObj = players[activeSymbol];
@@ -407,17 +410,48 @@ export function TacticalStatusStrip({
         ? 'Plateau ouvert'
         : `Zone ${BOARD_COORDS[gameState.activeBoard]}`;
 
+    // Temps par coup dépassé : le dernier coup a été joué d'office
+    const lastRecord = gameState.moveHistory[gameState.moveHistory.length - 1];
+    const lastWasAuto = Boolean(lastRecord?.auto);
+    const lastWarning =
+      isOnline &&
+      localPlayerSymbol != null &&
+      localPlayerSymbol === activeSymbol &&
+      (moveTimeouts?.[localPlayerSymbol] ?? 0) > 0;
+
     return (
       <div className="flex items-center gap-1.5 min-w-0">
+        {lastWasAuto && (
+          <span
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tracking-tight"
+            style={{
+              backgroundColor: 'var(--danger-bg)',
+              color: 'var(--danger-color)',
+              border: '1px solid var(--danger-color)',
+            }}
+            title="Temps dépassé : un coup aléatoire a été joué automatiquement"
+          >
+            Coup d’office
+          </span>
+        )}
         <span
           className="text-xs font-semibold truncate"
           style={{ color: 'var(--text-primary)' }}
         >
           {turnActor}
         </span>
-        <span className="shrink-0 text-xs" style={{ color: 'var(--text-muted)' }}>
-          · {zoneText}
-        </span>
+        {lastWarning ? (
+          <span
+            className="text-xs font-medium truncate"
+            style={{ color: 'var(--danger-color)' }}
+          >
+            · encore un dépassement et la partie est perdue
+          </span>
+        ) : (
+          <span className="shrink-0 text-xs" style={{ color: 'var(--text-muted)' }}>
+            · {zoneText}
+          </span>
+        )}
       </div>
     );
   };
@@ -488,6 +522,7 @@ interface PlayerBarProps {
   preview: DestinationPreview | null;
   hoveredMove: Move | null;
   pieceStyle?: PieceStyle;
+  moveTimeouts?: { X: number; O: number } | null;
 }
 
 export function PlayerBar({
@@ -504,6 +539,7 @@ export function PlayerBar({
   preview,
   hoveredMove,
   pieceStyle = 'classique',
+  moveTimeouts = null,
 }: PlayerBarProps) {
   const xCaptured = gameState.boards.filter((b) => b.status === 'X').length;
   const oCaptured = gameState.boards.filter((b) => b.status === 'O').length;
@@ -547,6 +583,7 @@ export function PlayerBar({
           preview={preview}
           hoveredMove={hoveredMove}
           showDesktopMeta
+          moveTimeouts={moveTimeouts}
         />
       </div>
     </header>

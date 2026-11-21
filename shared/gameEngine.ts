@@ -22,6 +22,8 @@ export interface MoveRecord {
   moveNumber: number;
   capturedBoard: boolean;
   triggeredFreeMove: boolean;
+  /** Coup joué d'office par le serveur après dépassement du temps par coup. */
+  auto?: boolean;
 }
 
 export type GameStatus = 'playing' | 'won' | 'draw';

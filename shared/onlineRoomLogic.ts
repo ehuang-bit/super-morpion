@@ -13,6 +13,7 @@ import {
 import {
   applyMove,
   createInitialState,
+  getLegalMoves,
   getOpponent,
   type GameState,
   type Move,
@@ -20,6 +21,10 @@ import {
   type Player,
 } from './gameEngine.js';
 import {
+  MATCH_INTRO_MS,
+  MAX_CONSECUTIVE_MOVE_TIMEOUTS,
+  MOVE_TIMEOUT_GRACE_MS,
+  MOVE_TIME_LIMIT_MS,
   TIME_CONTROL_MS,
   type EndReason,
   type RoomPeekInfo,
@@ -44,8 +49,22 @@ export interface StoredPlayer extends RoomPlayer {
  * Nombre minimal de coups pour qu'une partie soit classée : comme aux échecs
  * en ligne, si l'un des joueurs n'a pas encore joué son premier coup,
  * la partie est annulée au lieu d'être perdue.
+ *
+ * Les coups joués d'office (temps par coup dépassé) ne comptent pas : chaque
+ * joueur doit avoir joué lui-même au moins une fois.
  */
 export const MIN_MOVES_FOR_RATED_GAME = 2;
+
+function bothPlayersHavePlayed(gameState: GameState): boolean {
+  let x = false;
+  let o = false;
+  for (const record of gameState.moveHistory) {
+    if (record.auto) continue;
+    if (record.player === 'X') x = true;
+    else o = true;
+  }
+  return x && o;
+}
 
 export interface StoredRoom {
   code: string;
@@ -61,7 +80,19 @@ export interface StoredRoom {
     X: number;
     O: number;
   } | null;
+  /**
+   * Début du chrono du coup en cours. Peut être dans le futur juste après
+   * le lancement de la partie (présentation des joueurs).
+   */
   turnStartedAt: number | null;
+  /**
+   * Dépassements d'affilée de la limite par coup. Absent des salons créés
+   * avant l'introduction de cette règle.
+   */
+  moveTimeouts?: {
+    X: number;
+    O: number;
+  };
   endReason: EndReason | null;
   matchWinner: Player | null;
   rematchVotes: string[];
@@ -121,6 +152,7 @@ function cloneRoom(room: StoredRoom): StoredRoom {
       O: room.players.O ? { ...room.players.O } : null,
     },
     clocks: room.clocks ? { ...room.clocks } : null,
+    ...(room.moveTimeouts ? { moveTimeouts: { ...room.moveTimeouts } } : {}),
     rematchVotes: [...room.rematchVotes],
     eloResult: room.eloResult
       ? {
@@ -171,7 +203,10 @@ function finishRoom(
   next.turnStartedAt = null;
   next.lastActivityAt = now;
 
-  if (next.gameState.moveHistory.length < MIN_MOVES_FOR_RATED_GAME) {
+  if (
+    next.gameState.moveHistory.length < MIN_MOVES_FOR_RATED_GAME ||
+    !bothPlayersHavePlayed(next.gameState)
+  ) {
     next.endReason = 'aborted';
     next.matchWinner = null;
     return { endedWinner: null, endReason: 'aborted' };
@@ -183,6 +218,40 @@ function finishRoom(
     next.players[winner]!.score += 1;
   }
   return { endedWinner: winner, endReason: reason };
+}
+
+/**
+ * Après un coup (joué par le joueur ou d'office) : termine la partie si elle
+ * est gagnée ou nulle, sinon lance le chrono du coup suivant à `turnStart`.
+ */
+function concludeAfterMove(
+  next: StoredRoom,
+  turnStart: number,
+): { endedWinner: Player | null; endReason: EndReason | null } {
+  const state = next.gameState;
+
+  if (state.status === 'won' && state.winner) {
+    const winner = state.winner;
+    next.phase = 'finished';
+    next.endReason = 'alignment';
+    next.matchWinner = winner;
+    next.turnStartedAt = null;
+    if (next.players[winner]) {
+      next.players[winner]!.score += 1;
+    }
+    return { endedWinner: winner, endReason: 'alignment' };
+  }
+
+  if (state.status === 'draw') {
+    next.phase = 'finished';
+    next.endReason = 'draw';
+    next.matchWinner = null;
+    next.turnStartedAt = null;
+    return { endedWinner: null, endReason: 'draw' };
+  }
+
+  next.turnStartedAt = turnStart;
+  return { endedWinner: null, endReason: null };
 }
 
 export function createStoredRoom(params: {
@@ -217,6 +286,7 @@ export function createStoredRoom(params: {
         ? { X: initialTimeMs, O: initialTimeMs }
         : null,
     turnStartedAt: null,
+    moveTimeouts: { X: 0, O: 0 },
     endReason: null,
     matchWinner: null,
     rematchVotes: [],
@@ -283,6 +353,8 @@ export function toRoomSnapshot(room: StoredRoom, now: number): RoomSnapshot {
     gameState: room.gameState,
     clocks: room.clocks ? { ...room.clocks } : null,
     turnStartedAt: room.turnStartedAt,
+    moveTimeLimitMs: MOVE_TIME_LIMIT_MS,
+    moveTimeouts: room.moveTimeouts ? { ...room.moveTimeouts } : { X: 0, O: 0 },
     serverNow: now,
     endReason: room.endReason,
     matchWinner: room.matchWinner,
@@ -318,9 +390,18 @@ export function touchPlayerPresence(
   return { room: next, changed: true };
 }
 
+/**
+ * Applique tout ce que le temps écoulé implique, dans l'ordre chronologique :
+ * pendule globale épuisée, coups joués d'office après dépassement de la
+ * limite par coup, défaite au temps après trop de dépassements d'affilée,
+ * puis abandon par déconnexion prolongée.
+ *
+ * `rng` choisit le coup joué d'office (injectable pour les tests).
+ */
 export function settleTimeoutsAndAbandonment(
   room: StoredRoom,
   now: number,
+  rng: () => number = Math.random,
 ): {
   room: StoredRoom;
   changed: boolean;
@@ -331,14 +412,72 @@ export function settleTimeoutsAndAbandonment(
     return { room, changed: false, endedWinner: null, endReason: null };
   }
 
-  // 1. Check active chess clock expiration
-  if (room.clocks !== null && room.turnStartedAt !== null) {
-    const active = room.gameState.currentPlayer;
-    const elapsed = Math.max(0, now - room.turnStartedAt);
-    if (room.clocks[active] - elapsed <= 0) {
-      const next = cloneRoom(room);
+  let current = room;
+  let changed = false;
+
+  // 1. Pendule globale et limite par coup
+  while (current.phase === 'playing' && current.turnStartedAt !== null) {
+    const active = current.gameState.currentPlayer;
+    const startedAt = current.turnStartedAt;
+    const elapsed = now - startedAt;
+    const clockLeft = current.clocks !== null ? current.clocks[active] : null;
+
+    // La pendule globale s'épuise avant la limite par coup
+    if (clockLeft !== null && clockLeft <= MOVE_TIME_LIMIT_MS + MOVE_TIMEOUT_GRACE_MS) {
+      if (elapsed < clockLeft) break;
+      const next = cloneRoom(current);
       next.clocks![active] = 0;
       const ended = finishRoom(next, getOpponent(active), 'timeout', now);
+      return {
+        room: next,
+        changed: true,
+        endedWinner: ended.endedWinner,
+        endReason: ended.endReason,
+      };
+    }
+
+    if (elapsed < MOVE_TIME_LIMIT_MS + MOVE_TIMEOUT_GRACE_MS) break;
+
+    // Limite par coup dépassée
+    const next = cloneRoom(current);
+    const deadline = startedAt + MOVE_TIME_LIMIT_MS;
+    if (next.clocks !== null) {
+      next.clocks[active] = Math.max(0, next.clocks[active] - MOVE_TIME_LIMIT_MS);
+    }
+    const timeouts = next.moveTimeouts ?? { X: 0, O: 0 };
+    timeouts[active] += 1;
+    next.moveTimeouts = timeouts;
+
+    if (timeouts[active] >= MAX_CONSECUTIVE_MOVE_TIMEOUTS) {
+      const ended = finishRoom(next, getOpponent(active), 'timeout', now);
+      return {
+        room: next,
+        changed: true,
+        endedWinner: ended.endedWinner,
+        endReason: ended.endReason,
+      };
+    }
+
+    const legalMoves = getLegalMoves(next.gameState);
+    if (legalMoves.length === 0) break;
+    const picked =
+      legalMoves[Math.min(legalMoves.length - 1, Math.floor(rng() * legalMoves.length))];
+    const moveRes = applyMove(next.gameState, picked, active);
+    if (!moveRes.ok) break;
+
+    const history = moveRes.state.moveHistory;
+    next.gameState = {
+      ...moveRes.state,
+      moveHistory: history.map((record, index) =>
+        index === history.length - 1 ? { ...record, auto: true } : record,
+      ),
+    };
+    next.lastActivityAt = now;
+
+    const ended = concludeAfterMove(next, deadline);
+    current = next;
+    changed = true;
+    if (ended.endReason !== null) {
       return {
         room: next,
         changed: true,
@@ -349,11 +488,11 @@ export function settleTimeoutsAndAbandonment(
   }
 
   // 2. Check if one player dropped for >= DISCONNECT_FORFEIT_MS while the other is online
-  if (room.players.X && room.players.O) {
-    const xOnline = now - room.players.X.lastSeenAt < PRESENCE_ONLINE_MS;
-    const oOnline = now - room.players.O.lastSeenAt < PRESENCE_ONLINE_MS;
-    const xTimedOut = now - room.players.X.lastSeenAt >= DISCONNECT_FORFEIT_MS;
-    const oTimedOut = now - room.players.O.lastSeenAt >= DISCONNECT_FORFEIT_MS;
+  if (current.players.X && current.players.O) {
+    const xOnline = now - current.players.X.lastSeenAt < PRESENCE_ONLINE_MS;
+    const oOnline = now - current.players.O.lastSeenAt < PRESENCE_ONLINE_MS;
+    const xTimedOut = now - current.players.X.lastSeenAt >= DISCONNECT_FORFEIT_MS;
+    const oTimedOut = now - current.players.O.lastSeenAt >= DISCONNECT_FORFEIT_MS;
 
     let winner: Player | null = null;
     if (xTimedOut && oOnline) {
@@ -363,7 +502,7 @@ export function settleTimeoutsAndAbandonment(
     }
 
     if (winner !== null) {
-      const next = cloneRoom(room);
+      const next = cloneRoom(current);
       if (next.clocks !== null && next.turnStartedAt !== null) {
         const active = next.gameState.currentPlayer;
         const elapsed = Math.max(0, now - next.turnStartedAt);
@@ -379,7 +518,7 @@ export function settleTimeoutsAndAbandonment(
     }
   }
 
-  return { room, changed: false, endedWinner: null, endReason: null };
+  return { room: current, changed, endedWinner: null, endReason: null };
 }
 
 export function joinStoredRoom(
@@ -440,9 +579,8 @@ export function joinStoredRoom(
 
   if (next.players.X && next.players.O && next.phase === 'waiting') {
     next.phase = 'playing';
-    if (next.clocks !== null) {
-      next.turnStartedAt = params.now;
-    }
+    next.turnStartedAt = params.now + MATCH_INTRO_MS;
+    next.moveTimeouts = { X: 0, O: 0 };
   }
 
   next.lastActivityAt = params.now;
@@ -451,7 +589,7 @@ export function joinStoredRoom(
 
 export function applyMoveToStoredRoom(
   room: StoredRoom,
-  params: { playerId: string; move: Move; now: number },
+  params: { playerId: string; move: Move; now: number; rng?: () => number },
 ):
   | {
       ok: true;
@@ -466,8 +604,8 @@ export function applyMoveToStoredRoom(
       endedWinner?: Player | null;
       endReason?: EndReason | null;
     } {
-  const settled = settleTimeoutsAndAbandonment(room, params.now);
-  if (settled.changed) {
+  const settled = settleTimeoutsAndAbandonment(room, params.now, params.rng);
+  if (settled.changed && settled.room.phase !== 'playing') {
     return {
       ok: false,
       error:
@@ -480,22 +618,37 @@ export function applyMoveToStoredRoom(
     };
   }
 
+  // Si des coups ont été joués d'office entre-temps, on repart de cet état
+  // et on le renvoie pour qu'il soit enregistré même si le coup est refusé.
+  const base = settled.room;
+  const settledExtras = settled.changed
+    ? { settledRoom: base, endedWinner: null, endReason: null }
+    : {};
+
   const playerSymbol: Player | null =
-    room.players.X?.id === params.playerId
+    base.players.X?.id === params.playerId
       ? 'X'
-      : room.players.O?.id === params.playerId
+      : base.players.O?.id === params.playerId
         ? 'O'
         : null;
 
   if (!playerSymbol) {
-    return { ok: false, error: 'Action non autorisée dans ce salon.' };
+    return { ok: false, error: 'Action non autorisée dans ce salon.', ...settledExtras };
   }
 
-  if (room.phase !== 'playing') {
+  if (base.phase !== 'playing') {
     return { ok: false, error: 'La partie n’est pas active.' };
   }
 
-  const next = cloneRoom(room);
+  if (settled.changed && base.gameState.currentPlayer !== playerSymbol) {
+    return {
+      ok: false,
+      error: 'Temps écoulé : un coup a été joué à votre place.',
+      ...settledExtras,
+    };
+  }
+
+  const next = cloneRoom(base);
   next.players[playerSymbol]!.lastSeenAt = params.now;
 
   if (next.clocks !== null && next.turnStartedAt !== null) {
@@ -506,47 +659,24 @@ export function applyMoveToStoredRoom(
 
   const moveRes = applyMove(next.gameState, params.move, playerSymbol);
   if (!moveRes.ok) {
-    return { ok: false, error: MOVE_ERROR_MESSAGES[moveRes.error] };
+    return { ok: false, error: MOVE_ERROR_MESSAGES[moveRes.error], ...settledExtras };
   }
 
   next.gameState = moveRes.state;
   next.lastActivityAt = params.now;
 
-  if (moveRes.state.status === 'won' && moveRes.state.winner) {
-    const winner = moveRes.state.winner;
-    next.phase = 'finished';
-    next.endReason = 'alignment';
-    next.matchWinner = winner;
-    next.turnStartedAt = null;
-    if (next.players[winner]) {
-      next.players[winner]!.score += 1;
-    }
-    return {
-      ok: true,
-      room: next,
-      endedWinner: winner,
-      endReason: 'alignment',
-    };
-  }
+  // Le joueur a joué lui-même : ses dépassements d'affilée repartent de zéro
+  const timeouts = next.moveTimeouts ?? { X: 0, O: 0 };
+  timeouts[playerSymbol] = 0;
+  next.moveTimeouts = timeouts;
 
-  if (moveRes.state.status === 'draw') {
-    next.phase = 'finished';
-    next.endReason = 'draw';
-    next.matchWinner = null;
-    next.turnStartedAt = null;
-    return {
-      ok: true,
-      room: next,
-      endedWinner: null,
-      endReason: 'draw',
-    };
-  }
-
-  if (next.clocks !== null) {
-    next.turnStartedAt = params.now;
-  }
-
-  return { ok: true, room: next, endedWinner: null, endReason: null };
+  const ended = concludeAfterMove(next, params.now);
+  return {
+    ok: true,
+    room: next,
+    endedWinner: ended.endedWinner,
+    endReason: ended.endReason,
+  };
 }
 
 export function resignStoredRoom(
@@ -645,7 +775,8 @@ export function voteRematchStoredRoom(
   next.eloResult = null;
   next.rematchVotes = [];
   next.gameNumber += 1;
-  next.turnStartedAt = next.clocks !== null ? params.now : null;
+  next.turnStartedAt = params.now + MATCH_INTRO_MS;
+  next.moveTimeouts = { X: 0, O: 0 };
 
   return { ok: true, room: next, restarted: true };
 }

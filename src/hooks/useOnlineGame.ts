@@ -5,14 +5,17 @@ import {
   type EloProfile,
 } from '@shared/elo';
 import { applyMove, type Move, type Player } from '@shared/gameEngine';
-import type {
-  LeaderboardPayload,
-  LobbyStats,
-  PlayerStatsPayload,
-  RoomPeekInfo,
-  RoomSnapshot,
-  TimeControl,
+import {
+  MOVE_TIMEOUT_GRACE_MS,
+  MOVE_TIME_LIMIT_MS,
+  type LeaderboardPayload,
+  type LobbyStats,
+  type PlayerStatsPayload,
+  type RoomPeekInfo,
+  type RoomSnapshot,
+  type TimeControl,
 } from '@shared/protocol';
+import { DEMO_MODE } from '../dev/demoMode';
 import { haptics } from '../utils/haptics';
 import { soundEngine } from '../utils/soundEngine';
 
@@ -35,6 +38,11 @@ async function apiRequest<T>(
   options: RequestInit = {},
   authToken?: string | null,
 ): Promise<ApiResponse<T>> {
+  if (import.meta.env.DEV && DEMO_MODE) {
+    // Développement uniquement : faux serveur en mémoire (voir src/dev)
+    const { demoApiRequest } = await import('../dev/demoBackend');
+    return (await demoApiRequest(path, options)) as ApiResponse<T>;
+  }
   try {
     const authHeaders: Record<string, string> = authToken
       ? { Authorization: `Bearer ${authToken}` }
@@ -66,14 +74,28 @@ function getLocalSymbol(snap: RoomSnapshot | null, playerId: string): Player | n
  * plus lent quand c'est à nous (on ne fait qu'entretenir la présence),
  * très lent onglet masqué (juste assez pour ne pas être compté absent).
  */
-function nextPollDelay(snap: RoomSnapshot | null, playerId: string): number {
+function nextPollDelay(
+  snap: RoomSnapshot | null,
+  playerId: string,
+  clockOffsetMs: number,
+): number {
   if (typeof document !== 'undefined' && document.hidden) return 4000;
   if (!snap) return 1000;
   if (snap.phase === 'waiting') return 1100;
   if (snap.phase === 'finished') return 1400;
   const local = getLocalSymbol(snap, playerId);
-  if (local && snap.gameState.currentPlayer === local) return 1300;
-  return 420;
+  const base = local && snap.gameState.currentPlayer === local ? 1300 : 420;
+
+  // À l'approche de la limite par coup, on interroge le serveur juste après
+  // l'échéance pour afficher sans attendre le coup joué d'office.
+  if (snap.turnStartedAt !== null) {
+    const limit = snap.moveTimeLimitMs ?? MOVE_TIME_LIMIT_MS;
+    const deadline = snap.turnStartedAt + limit + MOVE_TIMEOUT_GRACE_MS + 120;
+    const untilDeadline = deadline - (Date.now() + clockOffsetMs);
+    if (untilDeadline <= 0) return 350;
+    return Math.min(base, Math.max(200, untilDeadline));
+  }
+  return base;
 }
 
 export function useOnlineGame(
@@ -309,7 +331,7 @@ export function useOnlineGame(
       if (!cancelled) {
         timer = window.setTimeout(
           () => void loop(),
-          nextPollDelay(prevSnapshotRef.current, playerId),
+          nextPollDelay(prevSnapshotRef.current, playerId, clockOffsetRef.current),
         );
       }
     };
@@ -508,9 +530,21 @@ export function useOnlineGame(
       const local = applyMove(current.gameState, move, localSymbol);
       if (!local.ok) return;
 
+      const serverNowEstimate = Date.now() + clockOffsetRef.current;
+
+      // Temps du coup écoulé : le serveur va jouer d'office, inutile d'envoyer
+      if (
+        current.turnStartedAt !== null &&
+        serverNowEstimate >
+          current.turnStartedAt +
+            (current.moveTimeLimitMs ?? MOVE_TIME_LIMIT_MS) +
+            MOVE_TIMEOUT_GRACE_MS
+      ) {
+        return;
+      }
+
       moveInFlightRef.current = true;
 
-      const serverNowEstimate = Date.now() + clockOffsetRef.current;
       let clocks = current.clocks ? { ...current.clocks } : null;
       if (clocks && current.turnStartedAt !== null) {
         const elapsed = Math.max(0, serverNowEstimate - current.turnStartedAt);
@@ -520,7 +554,7 @@ export function useOnlineGame(
         ...current,
         gameState: local.state,
         clocks,
-        turnStartedAt: clocks ? serverNowEstimate : current.turnStartedAt,
+        turnStartedAt: serverNowEstimate,
       };
 
       const lastRecord = local.state.moveHistory[local.state.moveHistory.length - 1];
