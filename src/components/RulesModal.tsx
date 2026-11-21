@@ -385,6 +385,20 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
               </div>
             </div>
 
+            <p
+              className="mt-4 rounded-[10px] px-3 py-2 text-xs leading-relaxed"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-cell)',
+              }}
+            >
+              <strong style={{ color: 'var(--text-primary)' }}>25 secondes par coup.</strong>{' '}
+              Le liséré autour du plateau indique le temps restant. S’il se vide, un coup
+              aléatoire est joué à votre place ; deux dépassements d’affilée font perdre la
+              partie au temps.
+            </p>
+
             <div className="mt-5 flex justify-end">
               <button
                 type="button"

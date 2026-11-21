@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BOARD_COORDS, type GameState } from '@shared/gameEngine';
+import { Timer } from 'lucide-react';
 import { CHIP_SPRING } from '../utils/motion';
 
 interface MoveHistoryRibbonProps {
@@ -108,6 +109,13 @@ export function MoveHistoryRibbon({ gameState }: MoveHistoryRibbonProps) {
                   />
                   <span style={{ color: 'var(--text-muted)' }}>{record.moveNumber}.</span>
                   <span className="font-medium">{coord}</span>
+                  {record.auto && (
+                    <Timer
+                      className="w-2.5 h-2.5 shrink-0"
+                      style={{ color: 'var(--danger-color)' }}
+                      aria-label="Coup joué d’office (temps dépassé)"
+                    />
+                  )}
                   {record.capturedBoard && (
                     <span
                       className="w-2 h-2 rounded-[2px] shrink-0"

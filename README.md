@@ -10,7 +10,8 @@ Application web **Super Morpion (Ultimate Tic-Tac-Toe)** 1v1 compétitive en lig
 
 - **Plateau prêt à jouer dès l’entrée**, barre latérale, console de lancement et activité en direct (joueurs en ligne, parties en cours, file d’attente par cadence).
 - **100 % multijoueur en ligne** :
-  - **Matchmaking par niveau** (l’adversaire au classement le plus proche est privilégié) par cadence : *Illimité*, *Rapide · 3 min*, *Blitz · 1:30*.
+  - **Matchmaking par niveau** (l’adversaire au classement le plus proche est privilégié) par cadence : *Classique*, *Rapide · 3 min*, *Blitz · 1:30*.
+  - **25 secondes par coup**, dans toutes les cadences : un liséré se vide autour du plateau. Au dépassement, un coup aléatoire est joué d’office ; deux dépassements d’affilée font perdre au temps.
   - **Duel privé** par code à 6 caractères ou lien d’invitation (`/room/ABCDEF`), avec partage natif (WhatsApp, SMS…).
   - **Coups instantanés** : le coup est validé localement par le même moteur que le serveur et affiché tout de suite, puis confirmé par le serveur.
   - Pendule serveur autoritaire, présence, revanche avec inversion des rôles, onglet « À toi de jouer ».
@@ -73,3 +74,7 @@ npm run build
 ```
 
 `npm run dev` lance l’interface seule ; `npm run dev:netlify` lance l’interface et les fonctions via Netlify CLI.
+
+### Mode démo (développement uniquement)
+
+Avec `npm run dev`, ouvrir `http://localhost:5173/?demo` : un faux serveur en mémoire (`src/dev/`) remplace l’API et fait jouer un adversaire simulé, avec la même logique de salon que le vrai serveur. Un panneau permet de choisir son comportement (`facile`, `fort`, `absent`) et de forcer une victoire, une défaite, un nul ou une promotion. `?demo=off` le désactive. Ce code n’est pas inclus dans la version de production.

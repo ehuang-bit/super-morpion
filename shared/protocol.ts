@@ -10,10 +10,35 @@ export const TIME_CONTROL_MS: Record<TimeControl, number | null> = {
 };
 
 export const TIME_CONTROL_LABELS: Record<TimeControl, string> = {
-  unlimited: 'Illimité',
+  unlimited: 'Classique',
   rapid: 'Rapide · 3 min',
   blitz: 'Blitz · 1:30',
 };
+
+/**
+ * Temps maximal pour jouer un coup, quelle que soit la cadence. Il s'ajoute
+ * à la pendule globale (Rapide, Blitz) : le premier des deux qui expire
+ * s'applique.
+ */
+export const MOVE_TIME_LIMIT_MS = 25_000;
+
+/**
+ * Tolérance réseau : un coup parti juste avant la limite reste accepté
+ * s'il arrive au serveur avec ce léger retard.
+ */
+export const MOVE_TIMEOUT_GRACE_MS = 600;
+
+/**
+ * Au-delà de la limite, un coup aléatoire est joué d'office. Après ce nombre
+ * de dépassements d'affilée pour un même joueur, il perd au temps.
+ */
+export const MAX_CONSECUTIVE_MOVE_TIMEOUTS = 2;
+
+/**
+ * Délai entre le début de la partie et le démarrage du premier chrono,
+ * le temps de présenter les deux joueurs.
+ */
+export const MATCH_INTRO_MS = 3_000;
 
 /**
  * `aborted` : partie annulée avant que chaque joueur ait joué son premier
@@ -56,6 +81,13 @@ export interface RoomSnapshot {
     O: number;
   } | null;
   turnStartedAt: number | null;
+  /** Temps accordé pour chaque coup (voir `MOVE_TIME_LIMIT_MS`). */
+  moveTimeLimitMs: number;
+  /** Dépassements d'affilée de la limite par coup, pour chaque joueur. */
+  moveTimeouts: {
+    X: number;
+    O: number;
+  };
   serverNow: number;
   endReason: EndReason | null;
   matchWinner: Player | null;

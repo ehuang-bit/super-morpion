@@ -38,6 +38,10 @@ class HapticsEngine {
     this.pulse(8);
   }
 
+  public countdown(): void {
+    this.pulse(14);
+  }
+
   public capture(): void {
     this.pulse([16, 38, 26]);
   }
