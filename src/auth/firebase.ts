@@ -10,14 +10,20 @@
  * définies (voir README) : les boutons n'apparaissent alors simplement pas.
  */
 import type { Auth } from 'firebase/auth';
+import {
+  DEFAULT_AUTH_PROVIDERS,
+  FIREBASE_PUBLIC_CONFIG,
+} from '@shared/firebasePublicConfig';
 
 export type SocialProvider = 'google' | 'apple' | 'microsoft';
 
 const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || FIREBASE_PUBLIC_CONFIG.apiKey,
+  authDomain:
+    import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || FIREBASE_PUBLIC_CONFIG.authDomain,
+  projectId:
+    import.meta.env.VITE_FIREBASE_PROJECT_ID || FIREBASE_PUBLIC_CONFIG.projectId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || FIREBASE_PUBLIC_CONFIG.appId,
 };
 
 export const firebaseEnabled = Boolean(
@@ -28,7 +34,7 @@ const ALL_PROVIDERS: SocialProvider[] = ['google', 'apple', 'microsoft'];
 
 /** Fournisseurs activés (VITE_AUTH_PROVIDERS="google,apple,microsoft"). */
 export const enabledSocialProviders: SocialProvider[] = firebaseEnabled
-  ? String(import.meta.env.VITE_AUTH_PROVIDERS ?? 'google')
+  ? String(import.meta.env.VITE_AUTH_PROVIDERS || DEFAULT_AUTH_PROVIDERS)
       .split(',')
       .map((p) => p.trim().toLowerCase())
       .filter((p): p is SocialProvider =>

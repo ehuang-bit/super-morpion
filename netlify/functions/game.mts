@@ -16,6 +16,7 @@ import {
   normalizeEloProfile,
   type EloProfile,
 } from '../../shared/elo.js';
+import { FIREBASE_PUBLIC_CONFIG } from '../../shared/firebasePublicConfig.js';
 import type { Move, Player } from '../../shared/gameEngine.js';
 import {
   applyEloOutcomeToRoom,
@@ -69,6 +70,7 @@ function getFirebaseProjectId(): string {
   return (
     process.env.FIREBASE_PROJECT_ID ||
     process.env.VITE_FIREBASE_PROJECT_ID ||
+    FIREBASE_PUBLIC_CONFIG.projectId ||
     ''
   ).trim();
 }

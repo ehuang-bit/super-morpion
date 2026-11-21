@@ -28,14 +28,16 @@ Application web **Super Morpion (Ultimate Tic-Tac-Toe)** 1v1 compétitive en lig
 
 ---
 
-## Activer la connexion Google / Apple / Microsoft / e-mail
+## Connexion Google / Apple / Microsoft / e-mail
 
-Les boutons n’apparaissent que lorsque Firebase est configuré.
+Configurée avec le projet Firebase `super-morpion` (Google + lien magique par e-mail activés, domaine `super-morpion-duel.netlify.app` autorisé). La configuration Web publique est dans `shared/firebasePublicConfig.ts`.
+
+Pour la refaire sur un autre projet :
 
 1. Créer un projet sur [console.firebase.google.com](https://console.firebase.google.com) (gratuit), puis **Ajouter une application Web** et copier sa configuration.
 2. **Authentication → Sign-in method** : activer **Google** ; activer **E-mail/Mot de passe** avec l’option **Lien envoyé par e-mail (connexion sans mot de passe)**. Microsoft et Apple sont optionnels (Apple exige un compte Apple Developer payant).
 3. **Authentication → Settings → Domaines autorisés** : ajouter `super-morpion-duel.netlify.app`.
-4. Dans Netlify (**Project configuration → Environment variables**), ajouter :
+4. Mettre la configuration dans `shared/firebasePublicConfig.ts`, ou bien dans Netlify (**Project configuration → Environment variables**) :
 
    | Variable | Valeur |
    | --- | --- |
