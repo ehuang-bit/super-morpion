@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import type { AuthUser, LeaderboardPayload } from '@shared/protocol';
 import { Crown, LogIn, Medal, RefreshCw, Swords, Trophy } from 'lucide-react';
+import { AnimatedNumber } from './AnimatedNumber';
 
 interface LeaderboardViewProps {
   user: AuthUser | null;
@@ -166,7 +167,12 @@ export function LeaderboardView({
                     style={{ color: 'var(--text-primary)' }}
                     title={`Déviation ±${entry.rd}`}
                   >
-                    {entry.rating}
+                    <AnimatedNumber
+                      value={entry.rating}
+                      from={Math.max(0, entry.rating - 70)}
+                      durationMs={600}
+                      delayMs={80 + Math.min(index, 12) * 30}
+                    />
                     {entry.provisional ? '?' : ''}
                   </span>
                 </motion.li>

@@ -20,6 +20,8 @@ interface GlobalBoardProps {
   canInteract: boolean;
   boardPrefs?: BoardPreferences;
   variant?: 'lobby' | 'arena';
+  /** Case mise en évidence (tutoriel). */
+  hintMove?: Move | null;
   onPlayMove: (move: Move) => void;
   onPreviewChange?: (preview: DestinationPreview | null, hoveredMove: Move | null) => void;
 }
@@ -43,6 +45,7 @@ export function GlobalBoard({
   canInteract,
   boardPrefs = DEFAULT_BOARD_PREFS,
   variant = 'lobby',
+  hintMove = null,
   onPlayMove,
   onPreviewChange,
 }: GlobalBoardProps) {
@@ -193,6 +196,7 @@ export function GlobalBoard({
                 isGameOver={isGameOver}
                 lastMoveCell={lastMoveCell}
                 hoveredCell={hoveredCell}
+                hintCell={hintMove?.boardIndex === boardIndex ? hintMove.cellIndex : null}
                 destinationPreview={destinationPreview}
                 animateCells={newlyAddedCells}
                 animateCapture={newlyCapturedBoards.has(boardIndex)}

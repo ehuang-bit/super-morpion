@@ -14,6 +14,7 @@ const HAPTICS_KEY = 'sm_haptics';
 const LAST_ROOM_KEY = 'sm_last_room';
 const AUTH_TOKEN_KEY = 'sm_auth_token';
 const ENTRY_MODE_KEY = 'sm_entry_mode_chosen';
+const TUTORIAL_KEY = 'sm_tutorial_seen';
 
 function generateId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -215,6 +216,23 @@ export function hasChosenEntryMode(): boolean {
 export function markEntryModeChosen(): void {
   try {
     localStorage.setItem(ENTRY_MODE_KEY, '1');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/** Vrai si le tutoriel a déjà été proposé (commencé ou remis à plus tard). */
+export function getTutorialSeen(): boolean {
+  try {
+    return localStorage.getItem(TUTORIAL_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+export function saveTutorialSeen(): void {
+  try {
+    localStorage.setItem(TUTORIAL_KEY, '1');
   } catch {
     // Ignore storage errors
   }

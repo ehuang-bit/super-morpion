@@ -29,6 +29,8 @@ interface SubBoardProps {
   isGameOver: boolean;
   lastMoveCell: number | null;
   hoveredCell: number | null;
+  /** Case conseillée à mettre en évidence (tutoriel). */
+  hintCell?: number | null;
   destinationPreview: DestinationPreview | null;
   animateCells: Set<string>;
   animateCapture: boolean;
@@ -62,6 +64,7 @@ export function SubBoard({
   isGameOver,
   lastMoveCell,
   hoveredCell,
+  hintCell = null,
   destinationPreview,
   animateCells,
   animateCapture,
@@ -317,6 +320,13 @@ export function SubBoard({
                   </AnimatePresence>
                 )}
               </span>
+
+              {hintCell === cellIndex && cellValue === null && (
+                <span
+                  aria-hidden="true"
+                  className="hint-pulse pointer-events-none absolute inset-[7%] rounded-[inherit]"
+                />
+              )}
 
               {isLastMove && (
                 <motion.span

@@ -6,9 +6,11 @@ import { MODAL_TRANSITION } from '../utils/motion';
 interface RulesModalProps {
   open: boolean;
   onClose: () => void;
+  /** Lance le tutoriel guidé sur le plateau d'essai. */
+  onStartTutorial?: () => void;
 }
 
-export function RulesModal({ open, onClose }: RulesModalProps) {
+export function RulesModal({ open, onClose, onStartTutorial }: RulesModalProps) {
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -399,7 +401,21 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
               partie au temps.
             </p>
 
-            <div className="mt-5 flex justify-end">
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              {onStartTutorial && (
+                <button
+                  type="button"
+                  onClick={onStartTutorial}
+                  className="tactile-btn rounded-xl px-4 py-2 text-sm font-semibold"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-main)',
+                  }}
+                >
+                  Apprendre en jouant
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClose}

@@ -12,6 +12,7 @@ import { LeaderboardView } from './components/LeaderboardView';
 import { MatchIntro } from './components/MatchIntro';
 import { MatchOutcome, type OutcomeKind } from './components/MatchOutcome';
 import { MatchmakingModal } from './components/MatchmakingModal';
+import { MobileTabBar } from './components/MobileTabBar';
 import { MoveHistoryRibbon } from './components/MoveHistoryRibbon';
 import {
   MatchMetaStrip,
@@ -81,6 +82,8 @@ export function App() {
   );
   const [activeTab, setActiveTab] = useState<NavTab>('play');
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [tutorialRequest, setTutorialRequest] = useState(0);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [confirmResign, setConfirmResign] = useState(false);
@@ -536,7 +539,10 @@ export function App() {
       };
 
       return (
-        <div className="flex-1 flex flex-col items-center justify-between gap-1.5 sm:gap-2 py-2 sm:py-3 px-2">
+        <div
+          className="flex-1 flex flex-col items-center justify-between gap-1.5 sm:gap-2 py-2 sm:py-3 px-2"
+          style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+        >
           {/* Desktop top header */}
           <div className="hidden sm:block w-full">
             <PlayerBar
@@ -755,6 +761,7 @@ export function App() {
         onOpenCustomize={() => setCustomizeOpen(true)}
         onOpenStats={() => setActiveTab('stats')}
         onOpenAuth={() => setAuthModalOpen(true)}
+        tutorialRequest={tutorialRequest}
       />
     );
   };
@@ -770,18 +777,23 @@ export function App() {
         onLogout={() => void auth.logout()}
         user={auth.user}
         pseudo={activePseudo}
-        playerElo={onlineGame.playerElo}
-        theme={theme}
-        onChangeTheme={handleChangeTheme}
         muted={muted}
         onToggleMute={handleToggleMute}
         hapticsEnabled={hapticsEnabled}
         onToggleHaptics={handleToggleHaptics}
         connected={onlineGame.connected}
         inActiveMatch={inActiveMatch}
+        mobileMenuOpen={mobileMenuOpen}
+        onMobileMenuChange={setMobileMenuOpen}
+        showMobileMenuButton={inMatchView}
       />
 
-      <div className="flex-1 min-w-0 flex flex-col">
+      {/* Sur téléphone, on laisse la place de la barre d'onglets (masquée en match) */}
+      <div
+        className={`flex-1 min-w-0 flex flex-col ${
+          inMatchView ? '' : 'pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0'
+        }`}
+      >
         {/* Animation d'entrée en CSS : jamais bloquée, même onglet en arrière-plan */}
         <div key={viewKey} className="view-enter flex-1 min-w-0 flex flex-col">
           {renderMainView()}
@@ -812,7 +824,7 @@ export function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] rounded-full px-4 py-2 text-xs sm:text-sm font-semibold inline-flex items-center gap-2"
+            className="fixed bottom-[4.75rem] lg:bottom-4 left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] rounded-full px-4 py-2 text-xs sm:text-sm font-semibold inline-flex items-center gap-2"
             style={{
               backgroundColor: 'var(--btn-primary-bg)',
               color: 'var(--btn-primary-text)',
@@ -841,7 +853,31 @@ export function App() {
         onChangeBoardPrefs={handleChangeBoardPrefs}
       />
 
-      <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+      <RulesModal
+        open={rulesOpen}
+        onClose={() => setRulesOpen(false)}
+        onStartTutorial={
+          inMatchView
+            ? undefined
+            : () => {
+                setRulesOpen(false);
+                setActiveTab('play');
+                setTutorialRequest((n) => n + 1);
+              }
+        }
+      />
+
+      {!inMatchView && (
+        <MobileTabBar
+          activeTab={activeTab}
+          menuOpen={mobileMenuOpen}
+          onSelectTab={(tab) => {
+            setMobileMenuOpen(false);
+            setActiveTab(tab);
+          }}
+          onOpenMenu={() => setMobileMenuOpen(true)}
+        />
+      )}
 
       <AnimatePresence>
         {intro && liveSnapshot && liveSnapshot.phase === 'playing' && (
