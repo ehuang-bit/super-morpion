@@ -230,13 +230,13 @@ export function GlobalBoard({
                   x2={coords.x2}
                   y2={coords.y2}
                   stroke={strokeColor}
-                  strokeWidth="12"
+                  strokeWidth="17"
                   strokeLinecap="round"
                   pathLength={100}
                   strokeDasharray={100}
                   initial={{ strokeDashoffset: 100, opacity: 0 }}
                   animate={{ strokeDashoffset: 0, opacity: 0.2 }}
-                  transition={{ duration: 0.42, ease: SMOOTH_EASE }}
+                  transition={{ duration: 0.8, delay: 0.1, ease: SMOOTH_EASE }}
                 />
                 <motion.line
                   x1={coords.x1}
@@ -244,13 +244,13 @@ export function GlobalBoard({
                   x2={coords.x2}
                   y2={coords.y2}
                   stroke={strokeColor}
-                  strokeWidth="7.5"
+                  strokeWidth="10"
                   strokeLinecap="round"
                   pathLength={100}
                   strokeDasharray={100}
                   initial={{ strokeDashoffset: 100, opacity: 0.4 }}
                   animate={{ strokeDashoffset: 0, opacity: 0.94 }}
-                  transition={{ duration: 0.42, ease: SMOOTH_EASE }}
+                  transition={{ duration: 0.8, delay: 0.1, ease: SMOOTH_EASE }}
                 />
               </>
             );

@@ -126,6 +126,9 @@ export function PlayWorkspace({
         soundEngine.playMove(prev.currentPlayer);
         haptics.move();
       }
+      if (lastRecord?.triggeredFreeMove && res.state.status === 'playing') {
+        soundEngine.playFreeMove();
+      }
       return res.state;
     });
   }, []);

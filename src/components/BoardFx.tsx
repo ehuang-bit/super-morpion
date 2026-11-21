@@ -24,7 +24,8 @@ type Fx =
   | { id: number; kind: 'splash'; at: Point; color: string; dots: InkDot[] }
   | { id: number; kind: 'trail'; from: Point; to: Point; target: Box; showLine: boolean }
   | { id: number; kind: 'shockwave'; box: Box; color: string }
-  | { id: number; kind: 'freeMove'; zones: { box: Box; delay: number }[] };
+  | { id: number; kind: 'freeMove'; zones: { box: Box; delay: number }[] }
+  | { id: number; kind: 'winZones'; zones: { box: Box; delay: number }[]; color: string };
 
 interface BoardFxProps {
   /** Conteneur du plateau : sert à mesurer les cases et les zones. */
@@ -123,6 +124,16 @@ export function BoardFx({ shellRef, gameState, strictCorners }: BoardFxProps) {
     if (record.capturedBoard) {
       const zone = measure(shell, `[data-board-index="${record.boardIndex}"]`);
       if (zone) created.push({ id: ++fxCounter, kind: 'shockwave', box: zone, color });
+    }
+
+    // Victoire : les trois zones alignées s'allument l'une après l'autre
+    if (gameState.status === 'won' && gameState.winLine) {
+      const zones: { box: Box; delay: number }[] = [];
+      gameState.winLine.forEach((boardIndex, order) => {
+        const box = measure(shell, `[data-board-index="${boardIndex}"]`);
+        if (box) zones.push({ box, delay: 0.12 + order * 0.2 });
+      });
+      created.push({ id: ++fxCounter, kind: 'winZones', zones, color });
     }
 
     if (gameState.status === 'playing') {
@@ -268,6 +279,27 @@ export function BoardFx({ shellRef, gameState, strictCorners }: BoardFxProps) {
               initial={{ opacity: 0.9, scale: 1 }}
               animate={{ opacity: 0, scale: ring === 0 ? 1.6 : 1.95 }}
               transition={{ duration: 0.7, delay, ease: [0.16, 1, 0.3, 1] }}
+            />
+          ));
+        }
+
+        if (fx.kind === 'winZones') {
+          return fx.zones.map((zone, index) => (
+            <motion.div
+              key={`${fx.id}-${index}`}
+              className="absolute"
+              style={{
+                left: zone.box.x,
+                top: zone.box.y,
+                width: zone.box.w,
+                height: zone.box.h,
+                borderRadius: zoneRadius,
+                border: `4px solid ${fx.color}`,
+                backgroundColor: `color-mix(in srgb, ${fx.color} 30%, transparent)`,
+              }}
+              initial={{ opacity: 0, scale: 0.88 }}
+              animate={{ opacity: [0, 1, 0.55], scale: [0.88, 1.09, 1] }}
+              transition={{ duration: 0.6, delay: zone.delay, times: [0, 0.4, 1] }}
             />
           ));
         }

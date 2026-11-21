@@ -6,7 +6,6 @@ import type { EndReason, RoomPlayer } from '@shared/protocol';
 import { Check, Eye, Home, RotateCcw, Share2, TrendingDown, TrendingUp } from 'lucide-react';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 import { CHIP_SPRING } from '../utils/motion';
-import { Confetti } from './Confetti';
 
 interface GameEndBannerProps {
   players: {
@@ -208,7 +207,6 @@ export function GameEndBanner({
 
   return (
     <>
-      {isWin && <Confetti />}
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.94 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -335,13 +333,14 @@ export function GameEndBanner({
             type="button"
             onClick={onRematch}
             disabled={isOnline && selfVotedRematch}
+            // La revanche bat doucement quand elle est proposée, ou après une défaite
             animate={
-              opponentVotedRematch && !selfVotedRematch
+              (opponentVotedRematch || isLoss) && !selfVotedRematch
                 ? { scale: [1, 1.04, 1] }
                 : { scale: 1 }
             }
             transition={
-              opponentVotedRematch && !selfVotedRematch
+              (opponentVotedRematch || isLoss) && !selfVotedRematch
                 ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' }
                 : { duration: 0.2 }
             }
