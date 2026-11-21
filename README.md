@@ -9,6 +9,7 @@ Application web **Super Morpion (Ultimate Tic-Tac-Toe)** 1v1 compétitive en lig
 ## Fonctionnalités principales
 
 - **Plateau prêt à jouer dès l’entrée**, barre latérale, console de lancement et activité en direct (joueurs en ligne, parties en cours, file d’attente par cadence).
+- **Tutoriel en 3 étapes** sur le plateau d’essai (proposé à la première visite, relançable depuis « Règles ») et **barre d’onglets en bas d’écran** sur téléphone (Jouer, Stats, Classement, Menu).
 - **100 % multijoueur en ligne** :
   - **Matchmaking par niveau** (l’adversaire au classement le plus proche est privilégié) par cadence : *Classique*, *Rapide · 3 min*, *Blitz · 1:30*.
   - **25 secondes par coup**, dans toutes les cadences : un liséré se vide autour du plateau. Au dépassement, un coup aléatoire est joué d’office ; deux dépassements d’affilée font perdre au temps.

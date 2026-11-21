@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import {
   getEloTier,
   getNextEloTier,
@@ -22,6 +23,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import type { PieceStyle } from '../types/boardPrefs';
+import { AnimatedNumber } from './AnimatedNumber';
 import { SymbolMark } from './Symbols';
 
 interface StatsViewProps {
@@ -279,7 +281,11 @@ export function StatsView({
                 className="font-mono text-3xl sm:text-4xl font-bold tabular-nums leading-none"
                 style={{ color: 'var(--text-primary)' }}
               >
-                {profile.rating}
+                <AnimatedNumber
+                  value={profile.rating}
+                  from={Math.max(0, profile.rating - 90)}
+                  durationMs={900}
+                />
                 {provisional && (
                   <span style={{ color: 'var(--text-muted)' }}>?</span>
                 )}
@@ -334,12 +340,12 @@ export function StatsView({
               border: '1px solid var(--border-cell)',
             }}
           >
-            <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{
-                width: `${tierProgressPct}%`,
-                backgroundColor: 'var(--accent-active)',
-              }}
+            <motion.div
+              className="h-full rounded-full"
+              style={{ backgroundColor: 'var(--accent-active)' }}
+              initial={{ width: '0%' }}
+              animate={{ width: `${tierProgressPct}%` }}
+              transition={{ duration: 0.9, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
             />
           </div>
           <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
@@ -370,7 +376,7 @@ export function StatsView({
             className="font-mono text-2xl font-bold tabular-nums mt-1"
             style={{ color: 'var(--text-primary)' }}
           >
-            {profile.gamesPlayed}
+            <AnimatedNumber value={profile.gamesPlayed} />
           </span>
           <span
             className="font-mono text-[11px] tabular-nums"
@@ -398,7 +404,7 @@ export function StatsView({
             className="font-mono text-2xl font-bold tabular-nums mt-1"
             style={{ color: 'var(--x-color)' }}
           >
-            {winRate}%
+            <AnimatedNumber value={winRate} suffix="%" delayMs={180} />
           </span>
           <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
             {profile.gamesPlayed === 0
@@ -425,7 +431,11 @@ export function StatsView({
             className="font-mono text-2xl font-bold tabular-nums mt-1"
             style={{ color: 'var(--text-primary)' }}
           >
-            {profile.peakRating}
+            <AnimatedNumber
+              value={profile.peakRating}
+              from={Math.max(0, profile.peakRating - 90)}
+              delayMs={240}
+            />
           </span>
           <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
             Rang {getEloTier(profile.peakRating).label}
@@ -542,39 +552,54 @@ export function StatsView({
               />
 
               {areaPath && (
-                <path
+                <motion.path
+                  key={`area-${polylinePoints}`}
                   d={areaPath}
                   fill="var(--x-surface)"
-                  opacity="0.65"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.65 }}
+                  transition={{ duration: 0.5, delay: 0.75 }}
                 />
               )}
 
+              {/* La courbe se trace de gauche à droite */}
               {points.length > 1 && (
-                <polyline
+                <motion.polyline
+                  key={`line-${polylinePoints}`}
                   fill="none"
                   stroke="var(--x-color)"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   points={polylinePoints}
+                  pathLength={100}
+                  strokeDasharray={100}
+                  initial={{ strokeDashoffset: 100 }}
+                  animate={{ strokeDashoffset: 0 }}
+                  transition={{ duration: 1.15, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
                 />
               )}
 
               {points.map((pt, idx) => (
-                <g key={idx}>
-                  <circle
-                    cx={pt.x}
-                    cy={pt.y}
-                    r={idx === points.length - 1 ? 4.5 : 3}
-                    fill={
-                      idx === points.length - 1
-                        ? 'var(--accent-active)'
-                        : 'var(--bg-board)'
-                    }
-                    stroke="var(--x-color)"
-                    strokeWidth="2"
-                  />
-                </g>
+                <motion.circle
+                  key={`${idx}-${polylinePoints.length}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={idx === points.length - 1 ? 4.5 : 3}
+                  fill={
+                    idx === points.length - 1
+                      ? 'var(--accent-active)'
+                      : 'var(--bg-board)'
+                  }
+                  stroke="var(--x-color)"
+                  strokeWidth="2"
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{
+                    duration: 0.25,
+                    delay: 0.2 + (idx / Math.max(1, points.length - 1)) * 1,
+                  }}
+                />
               ))}
             </svg>
           </div>
@@ -646,7 +671,7 @@ export function StatsView({
             </div>
           ) : (
             <div className="flex flex-col gap-2 max-h-[320px] overflow-y-auto pr-0.5">
-              {matches.map((m) => {
+              {matches.map((m, index) => {
                 const isWin = m.result === 'win';
                 const isLoss = m.result === 'loss';
                 const badgeBg = isWin
@@ -666,8 +691,11 @@ export function StatsView({
                     : 'Nul';
 
                 return (
-                  <div
+                  <motion.div
                     key={m.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 + Math.min(index, 10) * 0.05, duration: 0.28 }}
                     className="rounded-[11px] px-3 py-2.5 flex items-center justify-between gap-2.5"
                     style={{
                       backgroundColor: 'var(--bg-surface)',
@@ -739,7 +767,7 @@ export function StatsView({
                         {m.eloAfter} Elo
                       </span>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>

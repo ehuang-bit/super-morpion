@@ -30,7 +30,7 @@ export default function DemoPanel() {
 
   return (
     <div
-      className="fixed right-2 bottom-2 z-[90] rounded-[12px] text-xs select-none"
+      className="fixed right-2 bottom-[4.5rem] lg:bottom-2 z-[90] rounded-[12px] text-xs select-none"
       style={{
         backgroundColor: 'var(--bg-board)',
         color: 'var(--text-primary)',

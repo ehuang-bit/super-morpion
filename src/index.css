@@ -264,6 +264,9 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    /* Téléphones à encoche tenus à l'horizontale */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   button,
@@ -290,7 +293,85 @@
     background-color 180ms ease,
     border-color 180ms ease,
     color 180ms ease,
+    box-shadow 180ms ease,
     opacity 180ms ease;
+}
+
+/*
+ * Survol : un voile de la couleur du texte du bouton (il assombrit les boutons
+ * clairs, éclaircit les boutons sombres) et une légère élévation.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .tactile-btn:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 999px color-mix(in srgb, currentColor 9%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .cta-primary:hover:not(:disabled) {
+    box-shadow: var(--shadow-board),
+      inset 0 0 0 999px color-mix(in srgb, currentColor 10%, transparent);
+  }
+
+  .cta-primary:hover:not(:disabled) .cta-arrow {
+    transform: translateX(5px);
+  }
+}
+
+/* Action principale de l'accueil */
+.cta-primary {
+  box-shadow: var(--shadow-board);
+}
+
+.cta-arrow {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Écrans tactiles : cibles d'au moins 44 px */
+@media (pointer: coarse), (max-width: 640px) {
+  .tactile-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  input[type='text'],
+  input[type='password'],
+  input[type='email'],
+  input:not([type]) {
+    min-height: 44px;
+  }
+}
+
+.tab-bar-btn {
+  transition: color 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tab-bar-btn:active {
+  background-color: var(--bg-surface);
+}
+
+.tab-bar-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -3px;
+}
+
+/* Tutoriel : case conseillée */
+.hint-pulse {
+  border: 2.5px solid var(--accent-active);
+  background-color: var(--accent-active-bg);
+  animation: hint-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes hint-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .tactile-btn:active:not(:disabled) {
@@ -341,6 +422,15 @@
 @media (max-width: 640px) {
   .board-shell {
     --board-size: clamp(276px, min(calc(100vw - 20px), calc(100dvh - 280px)), 404px);
+  }
+
+  /* En match : en-tête, cartes joueurs, historique et barre d'actions de 44 px */
+  .board-shell.board-shell-arena {
+    --board-size: clamp(
+      256px,
+      min(calc(100vw - 20px), calc(100dvh - 352px - env(safe-area-inset-top) - env(safe-area-inset-bottom))),
+      404px
+    );
   }
 }
 
@@ -527,6 +617,7 @@
   .board-shell .subboard-shell,
   .clock-urgent,
   .turn-timer-urgent,
+  .hint-pulse,
   .live-dot::after {
     animation: none !important;
   }
