@@ -11,8 +11,10 @@ import type { BoardPreferences } from '../types/boardPrefs';
 import {
   CAPTURE_SPRING,
   FOCUS_SPRING,
+  PLACE_SPRING,
   PROJECTOR_SPRING,
   SMOOTH_EASE,
+  STAMP_SPRING,
 } from '../utils/motion';
 import { SymbolMark } from './Symbols';
 
@@ -83,6 +85,22 @@ export function SubBoard({
   const subRadius = isStrict ? 'rounded-[4px]' : 'rounded-[10px]';
   const ringRadius = isStrict ? 'rounded-[5px]' : 'rounded-[11px]';
   const cellRadius = isStrict ? 'rounded-[2px]' : 'rounded-[5px]';
+
+  // Zone verrouillée : les petites pièces s'estompent, en cascade depuis la
+  // case qui vient d'être jouée quand la prise a lieu en direct.
+  const lockedOpacity =
+    subBoard.status === 'X' || subBoard.status === 'O'
+      ? 0.2
+      : subBoard.status === 'draw'
+        ? 0.3
+        : 1;
+  const cascadeDelay = (cellIndex: number): number => {
+    if (!animateCapture || lastMoveCell === null) return 0;
+    const distance =
+      Math.abs(Math.floor(cellIndex / 3) - Math.floor(lastMoveCell / 3)) +
+      Math.abs((cellIndex % 3) - (lastMoveCell % 3));
+    return 120 + distance * 60;
+  };
 
   let containerBg =
     boardPrefs.boardMaterial === 'damier' && boardIndex % 2 === 1
@@ -195,12 +213,8 @@ export function SubBoard({
 
       {/* 3x3 Cells Grid */}
       <div
-        className={`grid grid-cols-3 grid-rows-3 w-full h-full min-h-0 min-w-0 gap-[3px] sm:gap-1 transition-opacity duration-300 ${
-          subBoard.status === 'X' || subBoard.status === 'O'
-            ? 'opacity-20 pointer-events-none'
-            : subBoard.status === 'draw'
-              ? 'opacity-30 pointer-events-none'
-              : 'opacity-100'
+        className={`grid grid-cols-3 grid-rows-3 w-full h-full min-h-0 min-w-0 gap-[3px] sm:gap-1 ${
+          isLocked ? 'pointer-events-none' : ''
         }`}
       >
         {subBoard.cells.map((cellValue, cellIndex) => {
@@ -247,16 +261,40 @@ export function SubBoard({
                 border: `1px solid ${
                   isLastMove ? 'var(--accent-active)' : 'var(--border-cell)'
                 }`,
+                ...(isLocked
+                  ? {
+                      opacity: lockedOpacity,
+                      transition: 'opacity 320ms ease',
+                      transitionDelay: `${cascadeDelay(cellIndex)}ms`,
+                    }
+                  : {}),
               }}
             >
               <span className="pointer-events-none absolute inset-[15%] flex items-center justify-center">
                 {cellValue !== null ? (
-                  <SymbolMark
-                    player={cellValue}
-                    size="cell"
-                    pieceStyle={boardPrefs.pieceStyle}
-                    animate={shouldAnimate}
-                  />
+                  shouldAnimate ? (
+                    // Pose : la pièce arrive un peu grande et inclinée, puis se cale
+                    <motion.div
+                      className="w-full h-full"
+                      initial={{ scale: 1.5, rotate: cellValue === 'X' ? -9 : 0 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={PLACE_SPRING}
+                    >
+                      <SymbolMark
+                        player={cellValue}
+                        size="cell"
+                        pieceStyle={boardPrefs.pieceStyle}
+                        animate
+                      />
+                    </motion.div>
+                  ) : (
+                    <SymbolMark
+                      player={cellValue}
+                      size="cell"
+                      pieceStyle={boardPrefs.pieceStyle}
+                      animate={false}
+                    />
+                  )
                 ) : (
                   <AnimatePresence>
                     {isHovered && (
@@ -298,9 +336,10 @@ export function SubBoard({
       {/* Captured Sub-Board Overlay (X or O) */}
       {(subBoard.status === 'X' || subBoard.status === 'O') && (
         <motion.div
-          initial={animateCapture ? { scale: 0.84, opacity: 0 } : false}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={CAPTURE_SPRING}
+          // Tampon : le grand symbole tombe de haut et s'écrase sur la zone
+          initial={animateCapture ? { scale: 2.7, opacity: 0, rotate: -12 } : false}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          transition={animateCapture ? { ...STAMP_SPRING, delay: 0.12 } : CAPTURE_SPRING}
           className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-[18%]"
         >
           {subBoard.winLine && (
@@ -326,7 +365,7 @@ export function SubBoard({
                     strokeDasharray={100}
                     initial={{ strokeDashoffset: 100, opacity: 0.4 }}
                     animate={{ strokeDashoffset: 0, opacity: 1 }}
-                    transition={{ duration: 0.28, ease: SMOOTH_EASE }}
+                    transition={{ duration: 0.34, delay: 0.3, ease: SMOOTH_EASE }}
                   />
                 ) : (
                   <line

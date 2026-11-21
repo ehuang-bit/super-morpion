@@ -12,6 +12,7 @@ import {
   type BoardPreferences,
 } from '../types/boardPrefs';
 import { SMOOTH_EASE } from '../utils/motion';
+import { BoardFx } from './BoardFx';
 import { SubBoard } from './SubBoard';
 
 interface GlobalBoardProps {
@@ -46,6 +47,7 @@ export function GlobalBoard({
   onPreviewChange,
 }: GlobalBoardProps) {
   const [hoveredMove, setHoveredMove] = useState<Move | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
 
   // Track cells & board captures present on mount vs added live, so reconnects never replay old animations
   const seenMovesRef = useRef<Set<string> | null>(null);
@@ -149,6 +151,7 @@ export function GlobalBoard({
 
   return (
     <div
+      ref={shellRef}
       className={`board-shell ${arenaClass} relative mx-auto box-border overflow-hidden ${shellRadius} ${materialClass} p-2 sm:p-2.5 transition-[border-radius] duration-200`}
       style={{
         backgroundColor: 'var(--bg-recessed)',
@@ -201,6 +204,12 @@ export function GlobalBoard({
           })}
         </div>
       </LayoutGroup>
+
+      <BoardFx
+        shellRef={shellRef}
+        gameState={gameState}
+        strictCorners={boardPrefs.boardShape === 'strict'}
+      />
 
       {/* Global Victory Alignment Line */}
       {gameState.status === 'won' && gameState.winLine && gameState.winner && (
