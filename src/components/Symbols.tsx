@@ -121,7 +121,7 @@ export function SymbolMark({
                 strokeDasharray={100}
                 initial={{ strokeDashoffset: 100, opacity: 0.45 }}
                 animate={{ strokeDashoffset: 0, opacity: 1 }}
-                transition={{ duration: 0.2, ease: SMOOTH_EASE }}
+                transition={{ duration: 0.3, ease: SMOOTH_EASE }}
               />
               <motion.path
                 d={p2}
@@ -133,7 +133,7 @@ export function SymbolMark({
                 strokeDasharray={100}
                 initial={{ strokeDashoffset: 100, opacity: 0.45 }}
                 animate={{ strokeDashoffset: 0, opacity: 1 }}
-                transition={{ duration: 0.2, delay: 0.07, ease: SMOOTH_EASE }}
+                transition={{ duration: 0.32, delay: 0.15, ease: SMOOTH_EASE }}
               />
             </>
           ) : (
@@ -177,7 +177,7 @@ export function SymbolMark({
             strokeDasharray={100}
             initial={{ strokeDashoffset: 100, opacity: 0.45 }}
             animate={{ strokeDashoffset: 0, opacity: 1 }}
-            transition={{ duration: 0.28, ease: SMOOTH_EASE }}
+            transition={{ duration: 0.46, ease: SMOOTH_EASE }}
           />
         ) : (
           <path
@@ -215,7 +215,7 @@ export function SymbolMark({
                 strokeDasharray={100}
                 initial={{ strokeDashoffset: 100, opacity: 0.45 }}
                 animate={{ strokeDashoffset: 0, opacity: 1 }}
-                transition={{ duration: 0.18, ease: SMOOTH_EASE }}
+                transition={{ duration: 0.26, ease: SMOOTH_EASE }}
               />
               <motion.line
                 x1="78"
@@ -229,7 +229,7 @@ export function SymbolMark({
                 strokeDasharray={100}
                 initial={{ strokeDashoffset: 100, opacity: 0.45 }}
                 animate={{ strokeDashoffset: 0, opacity: 1 }}
-                transition={{ duration: 0.18, delay: 0.06, ease: SMOOTH_EASE }}
+                transition={{ duration: 0.26, delay: 0.12, ease: SMOOTH_EASE }}
               />
             </>
           ) : (
@@ -278,7 +278,7 @@ export function SymbolMark({
               strokeDasharray={100}
               initial={{ strokeDashoffset: 100, opacity: 0.45 }}
               animate={{ strokeDashoffset: 0, opacity: 1 }}
-              transition={{ duration: 0.24, ease: SMOOTH_EASE }}
+              transition={{ duration: 0.38, ease: SMOOTH_EASE }}
             />
             <motion.circle
               cx="50"
@@ -290,7 +290,7 @@ export function SymbolMark({
               opacity={0.7}
               initial={{ scale: 0.65, opacity: 0 }}
               animate={{ scale: 1, opacity: 0.7 }}
-              transition={{ duration: 0.2, delay: 0.08, ease: SMOOTH_EASE }}
+              transition={{ duration: 0.26, delay: 0.2, ease: SMOOTH_EASE }}
             />
           </>
         ) : (
@@ -340,7 +340,7 @@ export function SymbolMark({
               strokeDasharray={100}
               initial={{ strokeDashoffset: 100, opacity: 0.45 }}
               animate={{ strokeDashoffset: 0, opacity: 1 }}
-              transition={{ duration: 0.2, ease: SMOOTH_EASE }}
+              transition={{ duration: 0.3, ease: SMOOTH_EASE }}
             />
             <motion.line
               x1="77"
@@ -354,7 +354,7 @@ export function SymbolMark({
               strokeDasharray={100}
               initial={{ strokeDashoffset: 100, opacity: 0.45 }}
               animate={{ strokeDashoffset: 0, opacity: 1 }}
-              transition={{ duration: 0.2, delay: 0.065, ease: SMOOTH_EASE }}
+              transition={{ duration: 0.3, delay: 0.14, ease: SMOOTH_EASE }}
             />
           </>
         ) : (
@@ -403,7 +403,7 @@ export function SymbolMark({
           strokeDasharray={100}
           initial={{ strokeDashoffset: 100, opacity: 0.45 }}
           animate={{ strokeDashoffset: 0, opacity: 1 }}
-          transition={{ duration: 0.26, ease: SMOOTH_EASE }}
+          transition={{ duration: 0.42, ease: SMOOTH_EASE }}
         />
       ) : (
         <circle

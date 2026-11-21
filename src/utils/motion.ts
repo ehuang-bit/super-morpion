@@ -21,6 +21,22 @@ export const CAPTURE_SPRING = {
   mass: 0.88,
 } as const;
 
+/** Tampon de capture : arrive de haut et s'écrase sur la zone. */
+export const STAMP_SPRING = {
+  type: 'spring',
+  stiffness: 520,
+  damping: 23,
+  mass: 0.95,
+} as const;
+
+/** Pose d'une pièce : léger dépassement puis stabilisation. */
+export const PLACE_SPRING = {
+  type: 'spring',
+  stiffness: 430,
+  damping: 19,
+  mass: 0.7,
+} as const;
+
 export const CHIP_SPRING = {
   type: 'spring',
   stiffness: 400,
