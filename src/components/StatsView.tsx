@@ -1,4 +1,9 @@
-import { getEloTier, getNextEloTier, type EloProfile } from '@shared/elo';
+import {
+  getEloTier,
+  getNextEloTier,
+  isProvisional,
+  type EloProfile,
+} from '@shared/elo';
 import {
   TIME_CONTROL_LABELS,
   type AuthUser,
@@ -40,6 +45,7 @@ const END_REASON_LABELS: Record<EndReason, string> = {
   timeout: 'Temps écoulé',
   resign: 'Abandon',
   abandoned: 'Déconnexion',
+  aborted: 'Annulée',
 };
 
 function formatMatchDate(ts: number): string {
@@ -73,6 +79,8 @@ export function StatsView({
 }: StatsViewProps) {
   const profile = stats?.profile ?? playerElo.profile;
   const tier = stats?.tier ?? playerElo.tier;
+  const provisional = stats?.provisional ?? isProvisional(profile.rd);
+  const percentile = stats?.percentile ?? null;
   const currentTierObj = getEloTier(profile.rating);
   const nextTier =
     stats?.nextTier ??
@@ -174,7 +182,7 @@ export function StatsView({
             className="text-xs sm:text-sm mt-0.5"
             style={{ color: 'var(--text-secondary)' }}
           >
-            Classement Elo FIDE, progression de rang et historique des duels en ligne.
+            Classement Glicko-2 (comme Lichess), progression de rang et historique des duels.
           </p>
         </div>
 
@@ -264,7 +272,7 @@ export function StatsView({
               className="text-xs font-semibold"
               style={{ color: 'var(--text-muted)' }}
             >
-              Classement Elo actuel
+              Classement actuel
             </span>
             <div className="flex items-baseline gap-2.5 mt-0.5">
               <span
@@ -272,6 +280,16 @@ export function StatsView({
                 style={{ color: 'var(--text-primary)' }}
               >
                 {profile.rating}
+                {provisional && (
+                  <span style={{ color: 'var(--text-muted)' }}>?</span>
+                )}
+              </span>
+              <span
+                className="font-mono text-xs font-semibold tabular-nums"
+                style={{ color: 'var(--text-muted)' }}
+                title="Déviation : l’incertitude sur ton niveau. Elle diminue à chaque partie et remonte doucement si tu ne joues pas."
+              >
+                ±{Math.round(profile.rd)}
               </span>
               <span
                 className="rounded-lg px-2.5 py-1 text-xs font-bold"
@@ -284,6 +302,13 @@ export function StatsView({
                 {tier}
               </span>
             </div>
+            <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+              {provisional
+                ? 'Classement provisoire : tes premières parties le font beaucoup bouger.'
+                : percentile !== null
+                  ? `Meilleur que ${percentile} % des joueurs classés.`
+                  : 'Classement établi.'}
+            </p>
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-# Super Morpion — Duel Stratégique 1v1 en ligne
+# Super Morpion — Duel stratégique 1v1 en ligne
 
 Application web **Super Morpion (Ultimate Tic-Tac-Toe)** 1v1 compétitive en ligne, hébergée sur **Netlify** (React 18 + TypeScript + Tailwind CSS + Framer Motion + Netlify Functions + Netlify Database Postgres).
 
@@ -8,40 +8,66 @@ Application web **Super Morpion (Ultimate Tic-Tac-Toe)** 1v1 compétitive en lig
 
 ## Fonctionnalités principales
 
-- **Plateau prêt à jouer dès l’entrée** : le plateau 9×9 complet est affiché au centre dès l’ouverture du site avec aperçu tactique du renvoi, entouré de la barre latérale de navigation et de la console de lancement de duel.
-- **100 % Multijoueur en ligne** :
-  - **Matchmaking rapide** par cadence (*Illimité*, *Rapide · 3 min*, *Blitz · 1:30*).
-  - **Duel privé par code à 6 caractères** ou lien d’invitation direct (`/room/ABCDEF`).
-  - **Pendule serveur autoritaire** sans dérive, détection de présence et revanche instantanée avec inversion des rôles (`X` / `O`).
-- **Comptes joueurs & Mode Invité** :
-  - **Inscription / Connexion** (`scrypt` + sessions persistantes Postgres) pour synchroniser son classement Elo et son historique sur tous ses appareils.
-  - **Accès immédiat en tant qu’invité** en un clic.
-- **Classement Elo FIDE & Page Statistiques** :
-  - Calcul Elo en temps réel (`1200` initial, facteur `K` dynamique `40 / 24 / 16`, 7 paliers de *Novice* à *Souverain*).
-  - Vue **Mes statistiques** dédiée : progression vers le prochain palier, taux de victoire, record Elo, série en cours, courbe SVG d’évolution Elo et historique détaillé des duels récents.
-- **Studio de personnalisation du plateau & 8 palettes sophistiquées** :
-  - **8 palettes architecturales** : *Atelier*, *Argile & Ardoise*, *Bordeaux & Craie*, *Sauge & Travertin*, *Kyoto*, *Nocturne*, *Club Nuit*, *Obsidienne & Or*.
-  - **4 styles de pièces** (*Classique*, *Plume*, *Précision*, *Pions*), **3 matières de surface** (*Papier mat*, *Damier*, *Grain pierre*), **2 géométries d’angles** (*Arrondi doux*, *Architectural*), coordonnées `A1–C3` et projecteur de destination au survol.
-- **Audio & Haptique** : synthèse Web Audio API bois/céramique sans fichier externe et retour haptique mobile.
+- **Plateau prêt à jouer dès l’entrée**, barre latérale, console de lancement et activité en direct (joueurs en ligne, parties en cours, file d’attente par cadence).
+- **100 % multijoueur en ligne** :
+  - **Matchmaking par niveau** (l’adversaire au classement le plus proche est privilégié) par cadence : *Illimité*, *Rapide · 3 min*, *Blitz · 1:30*.
+  - **Duel privé** par code à 6 caractères ou lien d’invitation (`/room/ABCDEF`), avec partage natif (WhatsApp, SMS…).
+  - **Coups instantanés** : le coup est validé localement par le même moteur que le serveur et affiché tout de suite, puis confirmé par le serveur.
+  - Pendule serveur autoritaire, présence, revanche avec inversion des rôles, onglet « À toi de jouer ».
+- **Classement Glicko-2 (comme Lichess)** :
+  - Classement + **déviation** (incertitude) + **volatilité** : les premières parties font beaucoup bouger le classement (affiché « 1350? » tant qu’il est provisoire), puis il se stabilise ; la déviation remonte doucement en cas d’inactivité.
+  - **Partie annulée** si un joueur n’a pas encore joué son premier coup (abandon, temps, départ) : aucun effet sur le classement.
+  - Impossible de jouer contre soi-même (même compte / même profil invité).
+  - **Classement général** des comptes (3 parties minimum), percentile dans *Mes statistiques*.
+- **Comptes** :
+  - **Google, Apple, Microsoft** et **lien magique par e-mail** (Gmail, iCloud, Outlook…) via Firebase Auth, ou pseudo + mot de passe (`scrypt`).
+  - **Mode invité** en un clic ; sa progression est **transférée** au compte créé ensuite.
+- **Fin de partie animée** : confettis, compteur de classement, promotion de rang, partage du résultat.
+- **PWA installable** (écran d’accueil iOS / Android), aperçu riche des liens partagés (Open Graph).
+- **Personnalisation** : 8 palettes, 4 styles de pièces, 3 matières, 2 géométries d’angles. Son Web Audio et vibrations.
+
+---
+
+## Activer la connexion Google / Apple / Microsoft / e-mail
+
+Les boutons n’apparaissent que lorsque Firebase est configuré.
+
+1. Créer un projet sur [console.firebase.google.com](https://console.firebase.google.com) (gratuit), puis **Ajouter une application Web** et copier sa configuration.
+2. **Authentication → Sign-in method** : activer **Google** ; activer **E-mail/Mot de passe** avec l’option **Lien envoyé par e-mail (connexion sans mot de passe)**. Microsoft et Apple sont optionnels (Apple exige un compte Apple Developer payant).
+3. **Authentication → Settings → Domaines autorisés** : ajouter `super-morpion-duel.netlify.app`.
+4. Dans Netlify (**Project configuration → Environment variables**), ajouter :
+
+   | Variable | Valeur |
+   | --- | --- |
+   | `VITE_FIREBASE_API_KEY` | `apiKey` de la config Firebase |
+   | `VITE_FIREBASE_AUTH_DOMAIN` | `authDomain` (ex. `mon-projet.firebaseapp.com`) |
+   | `VITE_FIREBASE_PROJECT_ID` | `projectId` |
+   | `VITE_FIREBASE_APP_ID` | `appId` |
+   | `VITE_AUTH_PROVIDERS` | `google` (ou `google,microsoft,apple`) |
+
+5. Redéployer. Le serveur vérifie les jetons Firebase avec `VITE_FIREBASE_PROJECT_ID` (ou `FIREBASE_PROJECT_ID`).
 
 ---
 
 ## Architecture technique
 
-- `shared/gameEngine.ts` : moteur pur des règles du Super Morpion (81 cases, renvoi directionnel, coup libre sur zone verrouillée, victoire locale/globale).
-- `shared/elo.ts` : système Elo, enjeux pré-match et paliers de rang.
-- `shared/onlineRoomLogic.ts` : transitions transactionnelles des salons en ligne.
-- `netlify/functions/game.mts` : API serverless (`/api/game/*`) connectée à **Netlify Database (Postgres)**.
-- `netlify/database/migrations/` : migrations SQL Postgres automatiques (`elo_profiles`, `rooms`, `matchmaking_queue`, `users`, `auth_sessions`, `match_history`).
-- `src/` : interface React + Tailwind CSS + Framer Motion.
+- `shared/gameEngine.ts` : moteur pur des règles (81 cases, renvoi, coup libre, victoire locale/globale).
+- `shared/elo.ts` : Glicko-2 (validé sur l’exemple de référence de Glickman), enjeux pré-match, paliers.
+- `shared/onlineRoomLogic.ts` : transitions des salons (coups, pendules, abandon, annulation, revanche).
+- `netlify/functions/game.mts` : API serverless `/api/game/*` sur **Netlify Database (Postgres)** : salons, matchmaking, comptes, OAuth, classement général, activité en direct.
+- `netlify/database/migrations/` : migrations SQL appliquées au déploiement.
+- `src/auth/firebase.ts` : connexion Firebase chargée à la demande.
+- `public/` : manifest PWA, service worker, icônes, image de partage.
 
 ---
 
-## Développement & Tests
+## Développement & tests
 
 ```bash
 npm install
 npm test
 npm run typecheck
-npm run build:client
+npm run build
 ```
+
+`npm run dev` lance l’interface seule ; `npm run dev:netlify` lance l’interface et les fonctions via Netlify CLI.

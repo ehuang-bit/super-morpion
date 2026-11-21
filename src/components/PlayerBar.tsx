@@ -79,9 +79,14 @@ export function PlayerCard({
                   backgroundColor: 'var(--bg-recessed)',
                   color: 'var(--text-primary)',
                 }}
-                title={`Classement Elo : ${player.elo} (${player.tier})`}
+                title={
+                  player.provisional
+                    ? `Classement provisoire : ${player.elo} ±${player.rd} (${player.tier})`
+                    : `Classement : ${player.elo} ±${player.rd} (${player.tier})`
+                }
               >
                 {player.elo}
+                {player.provisional ? '?' : ''}
               </span>
             )}
             {isSelf && (
@@ -145,7 +150,9 @@ export function PlayerCard({
 
       {clockMs !== null ? (
         <div
-          className="shrink-0 rounded-lg px-2 py-1 font-mono text-xs sm:text-sm font-semibold tabular-nums leading-none"
+          className={`shrink-0 rounded-lg px-2 py-1 font-mono text-xs sm:text-sm font-semibold tabular-nums leading-none ${
+            isLowClock && isTurn ? 'clock-urgent' : ''
+          }`}
           style={{
             backgroundColor: isLowClock
               ? 'var(--danger-bg)'
@@ -283,7 +290,9 @@ export function TacticalStatusStrip({
     if (phase === 'finished') {
       const winnerName = matchWinner ? players[matchWinner]?.pseudo : null;
       let label = 'Match nul — plateau complet';
-      if (endReason === 'timeout' && winnerName) {
+      if (endReason === 'aborted') {
+        label = 'Partie annulée — non classée';
+      } else if (endReason === 'timeout' && winnerName) {
         label = `${winnerName} gagne au temps`;
       } else if (endReason === 'resign' && winnerName) {
         label = `${winnerName} gagne par abandon`;

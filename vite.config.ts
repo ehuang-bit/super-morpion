@@ -12,16 +12,17 @@ export default defineConfig({
       '@shared': path.resolve(__dirname, 'shared'),
     },
   },
-  server: {
-    port: 5173,
-    proxy: {
-      '/socket.io': {
-        target: 'http://localhost:3001',
-        ws: true,
-      },
-      '/api': {
-        target: 'http://localhost:3001',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          motion: ['framer-motion'],
+        },
       },
     },
+  },
+  server: {
+    port: 5173,
   },
 });

@@ -1,5 +1,5 @@
 import type { EloMatchDelta, EloProfile, EloStakes } from './elo.js';
-import type { GameState, Move, Player } from './gameEngine.js';
+import type { GameState, Player } from './gameEngine.js';
 
 export type TimeControl = 'unlimited' | 'rapid' | 'blitz';
 
@@ -15,7 +15,17 @@ export const TIME_CONTROL_LABELS: Record<TimeControl, string> = {
   blitz: 'Blitz · 1:30',
 };
 
-export type EndReason = 'alignment' | 'draw' | 'timeout' | 'resign' | 'abandoned';
+/**
+ * `aborted` : partie annulée avant que chaque joueur ait joué son premier
+ * coup (abandon, temps écoulé ou départ). Elle n'est pas classée.
+ */
+export type EndReason =
+  | 'alignment'
+  | 'draw'
+  | 'timeout'
+  | 'resign'
+  | 'abandoned'
+  | 'aborted';
 
 export interface RoomPlayer {
   id: string;
@@ -24,6 +34,9 @@ export interface RoomPlayer {
   connected: boolean;
   score: number;
   elo: number;
+  /** Déviation Glicko du joueur. */
+  rd: number;
+  provisional: boolean;
   gamesPlayed: number;
   tier: string;
 }
@@ -63,10 +76,19 @@ export interface RoomPeekInfo {
   isFull: boolean;
 }
 
+export type AuthProvider =
+  | 'password'
+  | 'google'
+  | 'apple'
+  | 'microsoft'
+  | 'email';
+
 export interface AuthUser {
   id: string;
   username: string;
   createdAt: number;
+  provider?: AuthProvider;
+  avatarUrl?: string | null;
 }
 
 export interface MatchHistoryItem {
@@ -92,83 +114,39 @@ export interface PlayerStatsPayload {
   winRate: number;
   matches: MatchHistoryItem[];
   eloHistory: { rating: number; playedAt: number }[];
+  provisional: boolean;
+  /** Pourcentage de joueurs classés ayant un classement inférieur. */
+  percentile: number | null;
+  rankedPlayers: number;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  pseudo: string;
+  rating: number;
+  rd: number;
+  provisional: boolean;
+  gamesPlayed: number;
+  wins: number;
+  tier: string;
+  isSelf: boolean;
+}
+
+export interface LeaderboardPayload {
+  entries: LeaderboardEntry[];
+  /** Rang du joueur courant s'il n'apparaît pas dans la liste. */
+  selfRank: number | null;
+  minGames: number;
+}
+
+export interface LobbyStats {
+  liveGames: number;
+  queue: Record<TimeControl, number>;
+  playersOnline: number;
 }
 
 export interface ActionAck<T = undefined> {
   ok: boolean;
   data?: T;
   error?: string;
-}
-
-export interface ClientToServerEvents {
-  'room:create': (
-    payload: {
-      playerId: string;
-      profileId?: string;
-      pseudo: string;
-      timeControl: TimeControl;
-    },
-    ack?: (res: ActionAck<{ snapshot: RoomSnapshot }>) => void,
-  ) => void;
-  'room:join': (
-    payload: {
-      code: string;
-      playerId: string;
-      profileId?: string;
-      pseudo: string;
-    },
-    ack?: (res: ActionAck<{ snapshot: RoomSnapshot }>) => void,
-  ) => void;
-  'room:peek': (
-    payload: { code: string },
-    ack?: (res: ActionAck<{ info: RoomPeekInfo }>) => void,
-  ) => void;
-  'room:move': (
-    payload: { code: string; playerId: string; move: Move },
-    ack?: (res: ActionAck) => void,
-  ) => void;
-  'room:resign': (
-    payload: { code: string; playerId: string },
-    ack?: (res: ActionAck) => void,
-  ) => void;
-  'room:rematch': (
-    payload: { code: string; playerId: string },
-    ack?: (res: ActionAck) => void,
-  ) => void;
-  'room:leave': (
-    payload: { code: string; playerId: string },
-    ack?: (res: ActionAck) => void,
-  ) => void;
-  'matchmaking:join': (
-    payload: {
-      playerId: string;
-      profileId?: string;
-      pseudo: string;
-      timeControl: TimeControl;
-    },
-    ack?: (res: ActionAck<{ queueSize: number }>) => void,
-  ) => void;
-  'matchmaking:cancel': (
-    payload: { playerId: string },
-    ack?: (res: ActionAck) => void,
-  ) => void;
-  'profile:fetch': (
-    payload: { profileId: string; pseudo: string },
-    ack?: (res: ActionAck<{ profile: EloProfile; tier: string }>) => void,
-  ) => void;
-}
-
-export interface ServerToClientEvents {
-  'room:state': (snapshot: RoomSnapshot) => void;
-  'room:error': (payload: { message: string }) => void;
-  'matchmaking:status': (payload: {
-    searching: boolean;
-    timeControl?: TimeControl;
-    queueSize: number;
-  }) => void;
-  'matchmaking:matched': (payload: {
-    code: string;
-    snapshot: RoomSnapshot;
-  }) => void;
-  'profile:updated': (payload: { profile: EloProfile; tier: string }) => void;
 }

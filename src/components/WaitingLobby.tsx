@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TIME_CONTROL_LABELS, type RoomSnapshot } from '@shared/protocol';
-import { ArrowLeft, Check, Copy } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Share2 } from 'lucide-react';
 import { formatRoomCode } from '../utils/format';
 
 interface WaitingLobbyProps {
@@ -21,6 +21,20 @@ export function WaitingLobby({ snapshot, onCancel }: WaitingLobbyProps) {
     const timer = window.setTimeout(() => setCopiedType(null), 2200);
     return () => window.clearTimeout(timer);
   }, [copiedType]);
+
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const shareInvite = async () => {
+    try {
+      await navigator.share({
+        title: 'Super Morpion — duel',
+        text: `Je te défie au Super Morpion (${TIME_CONTROL_LABELS[snapshot.timeControl]}) ! Code ${snapshot.code}`,
+        url: inviteUrl,
+      });
+    } catch {
+      // Partage annulé
+    }
+  };
 
   const copyText = async (text: string, type: 'link' | 'code') => {
     try {
@@ -159,13 +173,32 @@ export function WaitingLobby({ snapshot, onCancel }: WaitingLobbyProps) {
               )}
             </button>
           </div>
+          {canShare && (
+            <button
+              type="button"
+              onClick={() => void shareInvite()}
+              className="tactile-btn mt-2 w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2"
+              style={{
+                backgroundColor: 'var(--accent-active-bg)',
+                color: 'var(--accent-active-text)',
+                border: '1px solid var(--accent-active)',
+              }}
+            >
+              <Share2 className="w-4 h-4" />
+              <span>Envoyer l’invitation</span>
+            </button>
+          )}
         </div>
 
         <div
           className="flex items-center justify-between pt-2 border-t"
           style={{ borderColor: 'var(--border-cell)' }}
         >
-          <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+          <span
+            className="inline-flex items-center gap-2 text-xs font-medium"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <span className="live-dot" aria-hidden="true" />
             En attente de l’adversaire…
           </span>
           <button

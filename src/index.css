@@ -345,11 +345,111 @@
 }
 
 @media (min-width: 1024px) {
+  /* Barre latérale (236px) + colonne de droite (320px) + marges */
   .board-shell {
-    --board-size: clamp(320px, min(calc(100vw - 636px), calc(100dvh - 172px)), 540px);
+    --board-size: clamp(320px, min(calc(100vw - 640px), calc(100dvh - 172px)), 540px);
   }
 
   .board-shell.board-shell-arena {
     --board-size: clamp(340px, min(calc(100vw - 300px), calc(100dvh - 196px)), 556px);
+  }
+}
+
+@media (min-width: 1280px) {
+  .board-shell {
+    --board-size: clamp(340px, min(calc(100vw - 700px), calc(100dvh - 172px)), 540px);
+  }
+}
+
+/* Point « en direct » */
+.live-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background-color: var(--x-color);
+  flex-shrink: 0;
+}
+
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background-color: var(--x-color);
+  opacity: 0.35;
+  animation: live-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes live-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.45;
+  }
+  80%,
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* Pendule presque écoulée */
+.clock-urgent {
+  animation: clock-urgent 1s ease-in-out infinite;
+}
+
+@keyframes clock-urgent {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+/* Entrée en scène du plateau */
+.board-shell {
+  animation: board-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.board-shell .subboard-shell {
+  animation: subboard-enter 460ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.board-shell .subboard-shell:nth-child(1) { animation-delay: 40ms; }
+.board-shell .subboard-shell:nth-child(2) { animation-delay: 70ms; }
+.board-shell .subboard-shell:nth-child(3) { animation-delay: 100ms; }
+.board-shell .subboard-shell:nth-child(4) { animation-delay: 70ms; }
+.board-shell .subboard-shell:nth-child(5) { animation-delay: 100ms; }
+.board-shell .subboard-shell:nth-child(6) { animation-delay: 130ms; }
+.board-shell .subboard-shell:nth-child(7) { animation-delay: 100ms; }
+.board-shell .subboard-shell:nth-child(8) { animation-delay: 130ms; }
+.board-shell .subboard-shell:nth-child(9) { animation-delay: 160ms; }
+
+@keyframes board-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes subboard-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-shell,
+  .board-shell .subboard-shell,
+  .clock-urgent,
+  .live-dot::after {
+    animation: none !important;
   }
 }

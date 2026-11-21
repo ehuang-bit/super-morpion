@@ -1,4 +1,3 @@
-import { createDefaultEloProfile, type EloProfile } from '@shared/elo';
 import {
   DEFAULT_BOARD_PREFS,
   type BoardPreferences,
@@ -13,7 +12,6 @@ const BOARD_PREFS_KEY = 'sm_board_prefs';
 const MUTED_KEY = 'sm_muted';
 const HAPTICS_KEY = 'sm_haptics';
 const LAST_ROOM_KEY = 'sm_last_room';
-const LOCAL_ELOS_KEY = 'sm_local_elos';
 const AUTH_TOKEN_KEY = 'sm_auth_token';
 const ENTRY_MODE_KEY = 'sm_entry_mode_chosen';
 
@@ -177,45 +175,6 @@ export function saveLastJoinedRoom(code: string | null): void {
     } else {
       sessionStorage.removeItem(LAST_ROOM_KEY);
     }
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-function normalizeLocalPseudoKey(pseudo: string): string {
-  return pseudo.trim().toLowerCase().replace(/\s+/g, ' ') || 'joueur';
-}
-
-export function getSavedLocalElo(pseudo: string): EloProfile {
-  try {
-    const raw = localStorage.getItem(LOCAL_ELOS_KEY);
-    if (!raw) return createDefaultEloProfile();
-    const map = JSON.parse(raw) as Record<string, EloProfile>;
-    const key = normalizeLocalPseudoKey(pseudo);
-    const found = map[key];
-    if (found && typeof found.rating === 'number') {
-      return {
-        rating: found.rating,
-        gamesPlayed: Number(found.gamesPlayed) || 0,
-        wins: Number(found.wins) || 0,
-        draws: Number(found.draws) || 0,
-        losses: Number(found.losses) || 0,
-        peakRating: Number(found.peakRating) || found.rating,
-        streak: Number(found.streak) || 0,
-      };
-    }
-    return createDefaultEloProfile();
-  } catch {
-    return createDefaultEloProfile();
-  }
-}
-
-export function saveLocalElo(pseudo: string, profile: EloProfile): void {
-  try {
-    const raw = localStorage.getItem(LOCAL_ELOS_KEY);
-    const map = raw ? (JSON.parse(raw) as Record<string, EloProfile>) : {};
-    map[normalizeLocalPseudoKey(pseudo)] = profile;
-    localStorage.setItem(LOCAL_ELOS_KEY, JSON.stringify(map));
   } catch {
     // Ignore storage errors
   }

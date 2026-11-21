@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
 import type { TimeControl } from '@shared/protocol';
-import { Flag, LogOut, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Flag, LogOut, RotateCcw } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { BoardCustomizeModal } from './components/BoardCustomizeModal';
 import { GameEndBanner } from './components/GameEndBanner';
 import { GlobalBoard } from './components/GlobalBoard';
+import { LeaderboardView } from './components/LeaderboardView';
 import { MatchmakingModal } from './components/MatchmakingModal';
 import { MoveHistoryRibbon } from './components/MoveHistoryRibbon';
 import {
@@ -25,6 +27,7 @@ import type { BoardPreferences } from './types/boardPrefs';
 import { applyThemeToDocument, type ThemeId } from './types/theme';
 import { normalizeRoomCode } from './utils/format';
 import { haptics } from './utils/haptics';
+import { SMOOTH_EASE } from './utils/motion';
 import { soundEngine } from './utils/soundEngine';
 import {
   getLastJoinedRoom,
@@ -50,11 +53,13 @@ function extractRoomCodeFromPath(pathname: string): string | null {
   return code.length === 6 ? code : null;
 }
 
+const BASE_TITLE = 'Super Morpion — Duel stratégique 1v1';
+
 export function App() {
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
   const profileId = useMemo(() => getOrCreateProfileId(), []);
 
-  const auth = useAuth();
+  const auth = useAuth(profileId);
 
   const [pseudo, setPseudo] = useState<string>(() => getSavedPseudo());
   const [timeControl, setTimeControl] = useState<TimeControl>('unlimited');
@@ -140,6 +145,40 @@ export function App() {
       void onlineGame.fetchStats(activePseudo);
     }
   }, [activeTab, onlineGame.connected, activePseudo, onlineGame.fetchStats]);
+
+  // Classement général
+  useEffect(() => {
+    if (activeTab === 'leaderboard') {
+      void onlineGame.fetchLeaderboard();
+    }
+  }, [activeTab, auth.token, onlineGame.fetchLeaderboard]);
+
+  // Message d'information (ex. progression invité transférée)
+  useEffect(() => {
+    if (!auth.notice) return;
+    const timer = window.setTimeout(() => auth.clearNotice(), 4500);
+    return () => window.clearTimeout(timer);
+  }, [auth.notice, auth.clearNotice]);
+
+  // Onglet du navigateur : « À toi de jouer » quand l'adversaire a joué
+  const snapPhase = onlineGame.snapshot?.phase;
+  const snapTurn = onlineGame.snapshot?.gameState.currentPlayer;
+  const snapLocal: Player | null =
+    onlineGame.snapshot?.players.X?.id === playerId
+      ? 'X'
+      : onlineGame.snapshot?.players.O?.id === playerId
+        ? 'O'
+        : null;
+  useEffect(() => {
+    const myTurn = snapPhase === 'playing' && snapLocal !== null && snapTurn === snapLocal;
+    const update = () => {
+      document.title =
+        document.hidden && myTurn ? '● À toi de jouer · Super Morpion' : BASE_TITLE;
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, [snapPhase, snapTurn, snapLocal]);
 
   // Browser back/forward navigation
   useEffect(() => {
@@ -301,9 +340,40 @@ export function App() {
 
   // Show AuthModal automatically on initial visit if user hasn't logged in or chosen guest mode yet
   const showEntryAuthModal =
-    authModalOpen || (!auth.loading && !auth.entryResolved && !routeRoomCode);
+    authModalOpen ||
+    Boolean(auth.onboarding) ||
+    auth.magicLinkNeedsEmail ||
+    (!auth.loading && !auth.entryResolved && !routeRoomCode);
+
+  const inMatchView = Boolean(
+    onlineGame.snapshot &&
+      (onlineGame.snapshot.phase === 'playing' ||
+        onlineGame.snapshot.phase === 'finished'),
+  );
+  const viewKey =
+    activeTab === 'stats'
+      ? 'stats'
+      : activeTab === 'leaderboard'
+        ? 'leaderboard'
+        : inMatchView
+          ? `match-${onlineGame.snapshot?.code ?? ''}`
+          : 'home';
 
   const renderMainView = () => {
+    // 0. Classement général
+    if (activeTab === 'leaderboard') {
+      return (
+        <LeaderboardView
+          user={auth.user}
+          data={onlineGame.leaderboard}
+          loading={onlineGame.leaderboardLoading}
+          onRefresh={() => void onlineGame.fetchLeaderboard()}
+          onOpenAuth={() => setAuthModalOpen(true)}
+          onPlay={() => setActiveTab('play')}
+        />
+      );
+    }
+
     // 1. Personal Statistics View
     if (activeTab === 'stats') {
       return (
@@ -440,6 +510,7 @@ export function App() {
                 <GameEndBanner
                   key={`${snap.code}-${snap.gameNumber}`}
                   players={snap.players}
+                  localSymbol={localSymbol}
                   matchWinner={snap.matchWinner}
                   endReason={snap.endReason}
                   eloResult={snap.eloResult}
@@ -558,6 +629,7 @@ export function App() {
         connectionStatus={onlineGame.connectionStatus}
         isBusy={onlineGame.isBusy}
         error={onlineGame.error}
+        lobby={onlineGame.lobby}
         waitingSnapshot={
           onlineGame.snapshot?.phase === 'waiting'
             ? onlineGame.snapshot
@@ -605,39 +677,56 @@ export function App() {
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
-        {renderMainView()}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={viewKey}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22, ease: SMOOTH_EASE }}
+            className="flex-1 min-w-0 flex flex-col"
+          >
+            {renderMainView()}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       <AuthModal
         open={showEntryAuthModal}
+        auth={auth}
         defaultPseudo={pseudo}
-        loading={auth.loading}
-        error={auth.error}
-        onClearError={auth.clearError}
-        onLogin={async (u, p) => {
-          const res = await auth.login(u, p);
-          if (res.ok) {
-            setAuthModalOpen(false);
-          }
-          return res.ok;
-        }}
-        onRegister={async (u, p) => {
-          const res = await auth.register(u, p);
-          if (res.ok) {
-            setAuthModalOpen(false);
-          }
-          return res.ok;
-        }}
+        onSignedIn={() => setAuthModalOpen(false)}
         onContinueAsGuest={(guestName) => {
           handleChangePseudo(guestName);
           auth.continueAsGuest(guestName);
           setAuthModalOpen(false);
         }}
         onClose={() => {
-          auth.continueAsGuest(pseudo);
+          if (!auth.user) auth.continueAsGuest(pseudo);
           setAuthModalOpen(false);
         }}
       />
+
+      <AnimatePresence>
+        {auth.notice && (
+          <motion.div
+            role="status"
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] rounded-full px-4 py-2 text-xs sm:text-sm font-semibold inline-flex items-center gap-2"
+            style={{
+              backgroundColor: 'var(--btn-primary-bg)',
+              color: 'var(--btn-primary-text)',
+              boxShadow: 'var(--shadow-board)',
+            }}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{auth.notice}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <MatchmakingModal
         open={onlineGame.matchmaking.searching}

@@ -4,8 +4,10 @@ import {
   getEloTier,
   type EloProfile,
 } from '@shared/elo';
-import type { Move } from '@shared/gameEngine';
+import { applyMove, type Move, type Player } from '@shared/gameEngine';
 import type {
+  LeaderboardPayload,
+  LobbyStats,
   PlayerStatsPayload,
   RoomPeekInfo,
   RoomSnapshot,
@@ -52,6 +54,28 @@ async function apiRequest<T>(
   }
 }
 
+function getLocalSymbol(snap: RoomSnapshot | null, playerId: string): Player | null {
+  if (!snap) return null;
+  if (snap.players.X?.id === playerId) return 'X';
+  if (snap.players.O?.id === playerId) return 'O';
+  return null;
+}
+
+/**
+ * Rythme de synchronisation : rapide quand on attend le coup adverse,
+ * plus lent quand c'est à nous (on ne fait qu'entretenir la présence),
+ * très lent onglet masqué (juste assez pour ne pas être compté absent).
+ */
+function nextPollDelay(snap: RoomSnapshot | null, playerId: string): number {
+  if (typeof document !== 'undefined' && document.hidden) return 4000;
+  if (!snap) return 1000;
+  if (snap.phase === 'waiting') return 1100;
+  if (snap.phase === 'finished') return 1400;
+  const local = getLocalSymbol(snap, playerId);
+  if (local && snap.gameState.currentPlayer === local) return 1300;
+  return 420;
+}
+
 export function useOnlineGame(
   playerId: string,
   profileId: string,
@@ -61,6 +85,7 @@ export function useOnlineGame(
   const versionRef = useRef<number>(0);
   const lastPseudoRef = useRef<string>('Joueur 1');
   const moveInFlightRef = useRef(false);
+  const clockOffsetRef = useRef(0);
   const authTokenRef = useRef<string | null>(authToken);
   authTokenRef.current = authToken;
 
@@ -87,6 +112,22 @@ export function useOnlineGame(
   });
   const [stats, setStats] = useState<PlayerStatsPayload | null>(null);
   const [statsLoading, setStatsLoading] = useState<boolean>(false);
+  const [lobby, setLobby] = useState<LobbyStats | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardPayload | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+
+  const fetchLeaderboard = useCallback(async () => {
+    setLeaderboardLoading(true);
+    const res = await apiRequest<LeaderboardPayload>(
+      '/leaderboard',
+      { method: 'GET' },
+      authTokenRef.current,
+    );
+    setLeaderboardLoading(false);
+    if (res.ok && res.data) {
+      setLeaderboard(res.data);
+    }
+  }, []);
 
   const fetchProfile = useCallback(
     async (pseudo: string) => {
@@ -183,7 +224,8 @@ export function useOnlineGame(
       }
 
       prevSnapshotRef.current = next;
-      setClockOffsetMs(next.serverNow - Date.now());
+      clockOffsetRef.current = next.serverNow - Date.now();
+      setClockOffsetMs(clockOffsetRef.current);
       setSnapshot(next);
       setConnected(true);
       setConnectionStatus('connected');
@@ -214,17 +256,19 @@ export function useOnlineGame(
     };
   }, []);
 
-  // Poll room state at 650ms while in a room
+  // Synchronisation du salon, à rythme adaptatif
   const activeRoomCode = snapshot?.code ?? null;
   useEffect(() => {
     if (!activeRoomCode) return;
 
     let cancelled = false;
     let inFlight = false;
+    let timer: number | undefined;
 
     const pollRoom = async () => {
-      if (cancelled || inFlight || document.hidden) return;
+      if (cancelled || inFlight || moveInFlightRef.current) return;
       inFlight = true;
+      const requestedVersion = versionRef.current;
       try {
         const res = await apiRequest<{
           unchanged?: boolean;
@@ -232,16 +276,23 @@ export function useOnlineGame(
           snapshot?: RoomSnapshot;
           version?: number;
         }>(
-          `/rooms/${encodeURIComponent(activeRoomCode)}/state?playerId=${encodeURIComponent(playerId)}&version=${versionRef.current}`,
+          `/rooms/${encodeURIComponent(activeRoomCode)}/state?playerId=${encodeURIComponent(playerId)}&version=${requestedVersion}`,
           { method: 'GET' },
         );
 
-        if (cancelled) return;
+        // Un coup est parti entre-temps : cette réponse est déjà périmée
+        if (cancelled || moveInFlightRef.current) return;
         if (res.ok && res.data) {
           if (res.data.snapshot) {
-            handleIncomingSnapshot(res.data.snapshot, res.data.version);
+            const isStale =
+              typeof res.data.version === 'number' &&
+              res.data.version < versionRef.current;
+            if (!isStale) {
+              handleIncomingSnapshot(res.data.snapshot, res.data.version);
+            }
           } else if (typeof res.data.serverNow === 'number') {
-            setClockOffsetMs(res.data.serverNow - Date.now());
+            clockOffsetRef.current = res.data.serverNow - Date.now();
+            setClockOffsetMs(clockOffsetRef.current);
             setConnected(true);
             setConnectionStatus('connected');
           }
@@ -253,9 +304,16 @@ export function useOnlineGame(
       }
     };
 
-    const interval = window.setInterval(() => {
-      void pollRoom();
-    }, 650);
+    const loop = async () => {
+      await pollRoom();
+      if (!cancelled) {
+        timer = window.setTimeout(
+          () => void loop(),
+          nextPollDelay(prevSnapshotRef.current, playerId),
+        );
+      }
+    };
+    timer = window.setTimeout(() => void loop(), 250);
 
     const onVisibility = () => {
       if (!document.hidden) {
@@ -266,10 +324,29 @@ export function useOnlineGame(
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [activeRoomCode, playerId, handleIncomingSnapshot]);
+
+  // Activité en direct affichée sur l'accueil (hors partie)
+  useEffect(() => {
+    if (activeRoomCode) return;
+    let cancelled = false;
+    const fetchLobby = async () => {
+      if (document.hidden) return;
+      const res = await apiRequest<LobbyStats>('/lobby', { method: 'GET' });
+      if (!cancelled && res.ok && res.data) {
+        setLobby(res.data);
+      }
+    };
+    void fetchLobby();
+    const interval = window.setInterval(() => void fetchLobby(), 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeRoomCode]);
 
   // Poll matchmaking queue while searching
   useEffect(() => {
@@ -409,12 +486,59 @@ export function useOnlineGame(
     [playerId, profileId, handleIncomingSnapshot],
   );
 
+  /**
+   * Coup optimiste : le coup est validé localement avec le même moteur que
+   * le serveur et affiché instantanément (son + vibration compris), puis le
+   * serveur confirme. En cas de refus, on revient à l'état précédent.
+   */
   const playMove = useCallback(
     async (move: Move) => {
       const current = prevSnapshotRef.current;
       if (!current || moveInFlightRef.current) return;
 
+      const localSymbol = getLocalSymbol(current, playerId);
+      if (
+        !localSymbol ||
+        current.phase !== 'playing' ||
+        current.gameState.currentPlayer !== localSymbol
+      ) {
+        return;
+      }
+
+      const local = applyMove(current.gameState, move, localSymbol);
+      if (!local.ok) return;
+
       moveInFlightRef.current = true;
+
+      const serverNowEstimate = Date.now() + clockOffsetRef.current;
+      let clocks = current.clocks ? { ...current.clocks } : null;
+      if (clocks && current.turnStartedAt !== null) {
+        const elapsed = Math.max(0, serverNowEstimate - current.turnStartedAt);
+        clocks = { ...clocks, [localSymbol]: Math.max(0, clocks[localSymbol] - elapsed) };
+      }
+      const optimistic: RoomSnapshot = {
+        ...current,
+        gameState: local.state,
+        clocks,
+        turnStartedAt: clocks ? serverNowEstimate : current.turnStartedAt,
+      };
+
+      const lastRecord = local.state.moveHistory[local.state.moveHistory.length - 1];
+      if (lastRecord?.capturedBoard) {
+        soundEngine.playCapture(localSymbol);
+        haptics.capture();
+      } else {
+        soundEngine.playMove(localSymbol);
+        if (lastRecord?.triggeredFreeMove) {
+          haptics.freeMove();
+        } else {
+          haptics.move();
+        }
+      }
+
+      prevSnapshotRef.current = optimistic;
+      setSnapshot(optimistic);
+
       try {
         const res = await apiRequest<{
           snapshot?: RoomSnapshot;
@@ -426,6 +550,9 @@ export function useOnlineGame(
 
         if (res.data?.snapshot) {
           handleIncomingSnapshot(res.data.snapshot, res.data.version);
+        } else if (!res.ok) {
+          prevSnapshotRef.current = current;
+          setSnapshot(current);
         }
         if (!res.ok && res.error) {
           setError(res.error);
@@ -563,6 +690,10 @@ export function useOnlineGame(
     playerElo,
     stats,
     statsLoading,
+    lobby,
+    leaderboard,
+    leaderboardLoading,
+    fetchLeaderboard,
     fetchProfile,
     fetchStats,
     createRoom,

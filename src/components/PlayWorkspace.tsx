@@ -1,5 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import type { EloProfile } from '@shared/elo';
+import { motion } from 'framer-motion';
+import { formatRating, type EloProfile } from '@shared/elo';
 import {
   BOARD_COORDS,
   applyMove,
@@ -11,6 +12,7 @@ import {
 import {
   TIME_CONTROL_LABELS,
   type AuthUser,
+  type LobbyStats,
   type RoomPeekInfo,
   type RoomSnapshot,
   type TimeControl,
@@ -56,6 +58,7 @@ interface PlayWorkspaceProps {
   connectionStatus: ConnectionStatus;
   isBusy: boolean;
   error: string | null;
+  lobby: LobbyStats | null;
   waitingSnapshot: RoomSnapshot | null;
   routeRoomCode: string | null;
   peekInfo: RoomPeekInfo | null;
@@ -85,6 +88,7 @@ export function PlayWorkspace({
   connectionStatus,
   isBusy,
   error,
+  lobby,
   waitingSnapshot,
   routeRoomCode,
   peekInfo,
@@ -150,6 +154,8 @@ export function PlayWorkspace({
   const normalizedJoin = normalizeRoomCode(joinCode);
   const displayName = user?.username || pseudo.trim() || 'Invité';
   const hasSandboxMoves = sandboxState.moveHistory.length > 0;
+  const ratingLabel = formatRating(playerElo.profile.rating, playerElo.profile.rd);
+  const waitingInQueue = lobby ? lobby.queue[timeControl] : 0;
 
   // Build tactical hint above the ready-to-play board
   let boardHint =
@@ -172,7 +178,7 @@ export function PlayWorkspace({
 
   return (
     <div className="flex-1 w-full max-w-[1160px] mx-auto px-2.5 sm:px-5 py-2.5 sm:py-4 flex flex-col justify-center">
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_348px] xl:grid-cols-[1fr_368px] gap-4 lg:gap-6 items-center">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_368px] gap-4 lg:gap-5 xl:gap-6 items-center">
         {/* CENTER-LEFT HERO: Full-size Ready-to-Play GlobalBoard */}
         <section
           aria-label="Plateau de jeu prêt à jouer"
@@ -272,7 +278,7 @@ export function PlayWorkspace({
                   color: 'var(--text-primary)',
                 }}
               >
-                {playerElo.profile.rating}
+                {ratingLabel}
               </span>
               <span
                 className="hidden sm:inline text-xs font-medium truncate"
@@ -336,7 +342,10 @@ export function PlayWorkspace({
           ) : (
             <>
               {/* Main Launch Console Card */}
-              <div
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
                 className="rounded-[16px] p-4 flex flex-col gap-3.5"
                 style={{
                   backgroundColor: 'var(--bg-board)',
@@ -344,6 +353,28 @@ export function PlayWorkspace({
                   boxShadow: 'var(--shadow-card)',
                 }}
               >
+                {/* Live activity */}
+                <div className="flex items-center justify-between gap-2 -mb-1">
+                  <span
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <span className="live-dot" aria-hidden="true" />
+                    {lobby
+                      ? lobby.playersOnline > 0
+                        ? `${lobby.playersOnline} joueur${lobby.playersOnline > 1 ? 's' : ''} en ligne`
+                        : 'Arène ouverte · sois le premier'
+                      : 'Connexion à l’arène…'}
+                  </span>
+                  {lobby && lobby.liveGames > 0 && (
+                    <span
+                      className="text-[11px] font-medium"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {lobby.liveGames} partie{lobby.liveGames > 1 ? 's' : ''} en cours
+                    </span>
+                  )}
+                </div>
                 {/* Account / Elo / Stats Quick Header */}
                 <div
                   className="rounded-[11px] p-2.5 flex items-center justify-between gap-2"
@@ -368,7 +399,7 @@ export function PlayWorkspace({
                           className="font-mono text-sm font-bold tabular-nums"
                           style={{ color: 'var(--text-primary)' }}
                         >
-                          {playerElo.profile.rating} Elo
+                          {ratingLabel} Elo
                         </span>
                         <span
                           className="text-xs font-semibold truncate"
@@ -530,7 +561,11 @@ export function PlayWorkspace({
                     <span>Trouver un adversaire</span>
                   </span>
                   <span className="text-xs font-normal opacity-80 inline-flex items-center gap-1">
-                    <span>Matchmaking</span>
+                    <span>
+                      {waitingInQueue > 0
+                        ? `${waitingInQueue} en attente`
+                        : 'Matchmaking'}
+                    </span>
                     <ArrowRight className="w-3.5 h-3.5" strokeWidth={2} />
                   </span>
                 </button>
@@ -613,7 +648,7 @@ export function PlayWorkspace({
                     </span>
                   </p>
                 )}
-              </div>
+              </motion.div>
 
               {/* Sophisticated Palettes & Board Studio Card right beside the board */}
               <div

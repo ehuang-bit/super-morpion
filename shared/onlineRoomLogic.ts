@@ -1,8 +1,12 @@
 import {
+  INITIAL_RD,
+  INITIAL_VOLATILITY,
   applyOutcomeToProfile,
-  calculateEloUpdate,
+  calculateRatingUpdate,
   getEloStakes,
   getEloTier,
+  inflateDeviation,
+  isProvisional,
   type EloMatchDelta,
   type EloProfile,
 } from './elo.js';
@@ -33,7 +37,15 @@ const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export interface StoredPlayer extends RoomPlayer {
   profileKey: string;
   lastSeenAt: number;
+  volatility?: number;
 }
+
+/**
+ * Nombre minimal de coups pour qu'une partie soit classée : comme aux échecs
+ * en ligne, si l'un des joueurs n'a pas encore joué son premier coup,
+ * la partie est annulée au lieu d'être perdue.
+ */
+export const MIN_MOVES_FOR_RATED_GAME = 2;
 
 export interface StoredRoom {
   code: string;
@@ -127,6 +139,7 @@ function buildStoredPlayer(params: {
   eloProfile: EloProfile;
   now: number;
 }): StoredPlayer {
+  const rd = inflateDeviation(params.eloProfile, params.now);
   return {
     id: params.playerId,
     pseudo: sanitizePseudo(params.pseudo),
@@ -134,11 +147,42 @@ function buildStoredPlayer(params: {
     connected: true,
     score: 0,
     elo: params.eloProfile.rating,
+    rd,
+    provisional: isProvisional(rd),
+    volatility: params.eloProfile.volatility,
     gamesPlayed: params.eloProfile.gamesPlayed,
     tier: getEloTier(params.eloProfile.rating).label,
     profileKey: params.profileKey,
     lastSeenAt: params.now,
   };
+}
+
+/**
+ * Termine la partie au profit de `winner`, ou l'annule si l'un des joueurs
+ * n'a pas encore joué (abandon, temps ou départ avant le 2e coup).
+ */
+function finishRoom(
+  next: StoredRoom,
+  winner: Player,
+  reason: 'timeout' | 'resign' | 'abandoned',
+  now: number,
+): { endedWinner: Player | null; endReason: EndReason } {
+  next.phase = 'finished';
+  next.turnStartedAt = null;
+  next.lastActivityAt = now;
+
+  if (next.gameState.moveHistory.length < MIN_MOVES_FOR_RATED_GAME) {
+    next.endReason = 'aborted';
+    next.matchWinner = null;
+    return { endedWinner: null, endReason: 'aborted' };
+  }
+
+  next.endReason = reason;
+  next.matchWinner = winner;
+  if (next.players[winner]) {
+    next.players[winner]!.score += 1;
+  }
+  return { endedWinner: winner, endReason: reason };
 }
 
 export function createStoredRoom(params: {
@@ -195,6 +239,7 @@ export function toRoomPeekInfo(room: StoredRoom): RoomPeekInfo {
 export function toRoomSnapshot(room: StoredRoom, now: number): RoomSnapshot {
   const toPublicPlayer = (p: StoredPlayer | null): RoomPlayer | null => {
     if (!p) return null;
+    const rd = typeof p.rd === 'number' ? p.rd : INITIAL_RD;
     return {
       id: p.id,
       pseudo: p.pseudo,
@@ -202,6 +247,8 @@ export function toRoomSnapshot(room: StoredRoom, now: number): RoomSnapshot {
       connected: now - p.lastSeenAt < PRESENCE_ONLINE_MS,
       score: p.score,
       elo: p.elo,
+      rd: Math.round(rd),
+      provisional: isProvisional(rd),
       gamesPlayed: p.gamesPlayed,
       tier: p.tier,
     };
@@ -212,12 +259,15 @@ export function toRoomSnapshot(room: StoredRoom, now: number): RoomSnapshot {
       ? getEloStakes(
           {
             rating: room.players.X.elo,
-            gamesPlayed: room.players.X.gamesPlayed,
+            rd: room.players.X.rd ?? INITIAL_RD,
+            volatility: room.players.X.volatility ?? INITIAL_VOLATILITY,
           },
           {
             rating: room.players.O.elo,
-            gamesPlayed: room.players.O.gamesPlayed,
+            rd: room.players.O.rd ?? INITIAL_RD,
+            volatility: room.players.O.volatility ?? INITIAL_VOLATILITY,
           },
+          now,
         )
       : null;
 
@@ -287,21 +337,13 @@ export function settleTimeoutsAndAbandonment(
     const elapsed = Math.max(0, now - room.turnStartedAt);
     if (room.clocks[active] - elapsed <= 0) {
       const next = cloneRoom(room);
-      const winner = getOpponent(active);
       next.clocks![active] = 0;
-      next.phase = 'finished';
-      next.endReason = 'timeout';
-      next.matchWinner = winner;
-      next.turnStartedAt = null;
-      if (next.players[winner]) {
-        next.players[winner]!.score += 1;
-      }
-      next.lastActivityAt = now;
+      const ended = finishRoom(next, getOpponent(active), 'timeout', now);
       return {
         room: next,
         changed: true,
-        endedWinner: winner,
-        endReason: 'timeout',
+        endedWinner: ended.endedWinner,
+        endReason: ended.endReason,
       };
     }
   }
@@ -327,19 +369,12 @@ export function settleTimeoutsAndAbandonment(
         const elapsed = Math.max(0, now - next.turnStartedAt);
         next.clocks[active] = Math.max(0, next.clocks[active] - elapsed);
       }
-      next.phase = 'finished';
-      next.endReason = 'abandoned';
-      next.matchWinner = winner;
-      next.turnStartedAt = null;
-      if (next.players[winner]) {
-        next.players[winner]!.score += 1;
-      }
-      next.lastActivityAt = now;
+      const ended = finishRoom(next, winner, 'abandoned', now);
       return {
         room: next,
         changed: true,
-        endedWinner: winner,
-        endReason: 'abandoned',
+        endedWinner: ended.endedWinner,
+        endReason: ended.endReason,
       };
     }
   }
@@ -383,6 +418,14 @@ export function joinStoredRoom(
     room.players.X === null ? 'X' : room.players.O === null ? 'O' : null;
   if (openSlot === null) {
     return { ok: false, error: 'Ce salon est déjà complet.' };
+  }
+
+  const host = openSlot === 'X' ? room.players.O : room.players.X;
+  if (host && host.profileKey === params.profileKey) {
+    return {
+      ok: false,
+      error: 'Impossible de jouer contre vous-même : ouvrez le lien sur un autre compte.',
+    };
   }
 
   const next = cloneRoom(room);
@@ -510,7 +553,12 @@ export function resignStoredRoom(
   room: StoredRoom,
   params: { playerId: string; now: number },
 ):
-  | { ok: true; room: StoredRoom; endedWinner: Player; endReason: 'resign' }
+  | {
+      ok: true;
+      room: StoredRoom;
+      endedWinner: Player | null;
+      endReason: EndReason;
+    }
   | { ok: false; error: string } {
   const playerSymbol: Player | null =
     room.players.X?.id === params.playerId
@@ -535,17 +583,14 @@ export function resignStoredRoom(
     next.clocks[active] = Math.max(0, next.clocks[active] - elapsed);
   }
 
-  const winner = getOpponent(playerSymbol);
-  next.phase = 'finished';
-  next.endReason = 'resign';
-  next.matchWinner = winner;
-  next.turnStartedAt = null;
-  if (next.players[winner]) {
-    next.players[winner]!.score += 1;
-  }
-  next.lastActivityAt = params.now;
+  const ended = finishRoom(next, getOpponent(playerSymbol), 'resign', params.now);
 
-  return { ok: true, room: next, endedWinner: winner, endReason: 'resign' };
+  return {
+    ok: true,
+    room: next,
+    endedWinner: ended.endedWinner,
+    endReason: ended.endReason,
+  };
 }
 
 export function voteRematchStoredRoom(
@@ -636,24 +681,17 @@ export function leaveStoredRoom(
   next.lastActivityAt = params.now;
 
   if (room.phase === 'playing') {
-    const winner = getOpponent(playerSymbol);
     if (next.clocks !== null && next.turnStartedAt !== null) {
       const active = next.gameState.currentPlayer;
       const elapsed = Math.max(0, params.now - next.turnStartedAt);
       next.clocks[active] = Math.max(0, next.clocks[active] - elapsed);
     }
-    next.phase = 'finished';
-    next.endReason = 'abandoned';
-    next.matchWinner = winner;
-    next.turnStartedAt = null;
-    if (next.players[winner]) {
-      next.players[winner]!.score += 1;
-    }
+    const ended = finishRoom(next, getOpponent(playerSymbol), 'abandoned', params.now);
     return {
       deleted: false,
       room: next,
-      endedWinner: winner,
-      endReason: 'abandoned',
+      endedWinner: ended.endedWinner,
+      endReason: ended.endReason,
     };
   }
 
@@ -664,57 +702,77 @@ export function applyEloOutcomeToRoom(
   room: StoredRoom,
   profileX: EloProfile,
   profileO: EloProfile,
+  now: number,
 ): {
   room: StoredRoom;
   nextProfileX: EloProfile;
   nextProfileO: EloProfile;
+  rated: boolean;
 } {
   if (!room.players.X || !room.players.O) {
-    return { room, nextProfileX: profileX, nextProfileO: profileO };
+    return { room, nextProfileX: profileX, nextProfileO: profileO, rated: false };
+  }
+
+  // Partie annulée : aucun effet sur le classement, mais on marque le
+  // résultat comme traité pour ne pas le recalculer à chaque requête.
+  if (room.endReason === 'aborted') {
+    const next = cloneRoom(room);
+    const unrated = (profile: EloProfile): EloMatchDelta => ({
+      before: profile.rating,
+      after: profile.rating,
+      delta: 0,
+      tier: getEloTier(profile.rating).label,
+      rd: Math.round(profile.rd),
+      provisional: isProvisional(profile.rd),
+      rated: false,
+    });
+    next.eloResult = { X: unrated(profileX), O: unrated(profileO) };
+    return { room: next, nextProfileX: profileX, nextProfileO: profileO, rated: false };
   }
 
   const outcomeX: 1 | 0.5 | 0 =
     room.matchWinner === 'X' ? 1 : room.matchWinner === 'O' ? 0 : 0.5;
   const outcomeO = (1 - outcomeX) as 1 | 0.5 | 0;
 
-  const update = calculateEloUpdate(profileX, profileO, outcomeX);
-  const nextProfileX = applyOutcomeToProfile(
-    profileX,
-    update.newRatingA,
-    outcomeX,
-  );
-  const nextProfileO = applyOutcomeToProfile(
-    profileO,
-    update.newRatingB,
-    outcomeO,
-  );
+  const update = calculateRatingUpdate(profileX, profileO, outcomeX, now);
+  const nextProfileX = applyOutcomeToProfile(profileX, update.nextA, outcomeX, now);
+  const nextProfileO = applyOutcomeToProfile(profileO, update.nextB, outcomeO, now);
 
   const tierX = getEloTier(nextProfileX.rating).label;
   const tierO = getEloTier(nextProfileO.rating).label;
 
   const next = cloneRoom(room);
-  next.players.X!.elo = nextProfileX.rating;
-  next.players.X!.gamesPlayed = nextProfileX.gamesPlayed;
-  next.players.X!.tier = tierX;
-
-  next.players.O!.elo = nextProfileO.rating;
-  next.players.O!.gamesPlayed = nextProfileO.gamesPlayed;
-  next.players.O!.tier = tierO;
+  const syncPlayer = (p: StoredPlayer, profile: EloProfile, tier: string) => {
+    p.elo = profile.rating;
+    p.rd = profile.rd;
+    p.provisional = isProvisional(profile.rd);
+    p.volatility = profile.volatility;
+    p.gamesPlayed = profile.gamesPlayed;
+    p.tier = tier;
+  };
+  syncPlayer(next.players.X!, nextProfileX, tierX);
+  syncPlayer(next.players.O!, nextProfileO, tierO);
 
   next.eloResult = {
     X: {
       before: profileX.rating,
       after: nextProfileX.rating,
-      delta: update.deltaA,
+      delta: nextProfileX.rating - profileX.rating,
       tier: tierX,
+      rd: Math.round(nextProfileX.rd),
+      provisional: isProvisional(nextProfileX.rd),
+      rated: true,
     },
     O: {
       before: profileO.rating,
       after: nextProfileO.rating,
-      delta: update.deltaB,
+      delta: nextProfileO.rating - profileO.rating,
       tier: tierO,
+      rd: Math.round(nextProfileO.rd),
+      provisional: isProvisional(nextProfileO.rd),
+      rated: true,
     },
   };
 
-  return { room: next, nextProfileX, nextProfileO };
+  return { room: next, nextProfileX, nextProfileO, rated: true };
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { EloProfile } from '@shared/elo';
+import { formatRating, type EloProfile } from '@shared/elo';
 import type { AuthUser } from '@shared/protocol';
 import {
   Award,
@@ -11,6 +11,7 @@ import {
   Menu,
   SlidersHorizontal,
   Swords,
+  Trophy,
   UserCheck,
   Vibrate,
   Volume2,
@@ -20,7 +21,7 @@ import {
 import { THEMES, type ThemeId } from '../types/theme';
 import { SMOOTH_EASE } from '../utils/motion';
 
-export type NavTab = 'play' | 'stats';
+export type NavTab = 'play' | 'stats' | 'leaderboard';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -68,6 +69,7 @@ export function Sidebar({
 
   const displayName = user?.username || pseudo.trim() || 'Invité';
   const initial = displayName.charAt(0).toUpperCase() || 'J';
+  const ratingLabel = formatRating(playerElo.profile.rating, playerElo.profile.rd);
 
   // Signature quick swatches in sidebar (including the new sophisticated palettes)
   const featuredThemes = THEMES.filter((t) =>
@@ -254,7 +256,42 @@ export function Sidebar({
               className="font-mono text-[11px] tabular-nums"
               style={{ color: 'var(--text-muted)' }}
             >
-              {playerElo.profile.rating}
+              {ratingLabel}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSelectTab('leaderboard');
+              closeMobile?.();
+            }}
+            aria-current={activeTab === 'leaderboard' ? 'page' : undefined}
+            className="tactile-btn w-full rounded-[10px] px-3 py-2.5 text-xs font-semibold flex items-center justify-between gap-2"
+            style={{
+              backgroundColor:
+                activeTab === 'leaderboard' ? 'var(--bg-recessed)' : 'transparent',
+              color:
+                activeTab === 'leaderboard'
+                  ? 'var(--text-primary)'
+                  : 'var(--text-secondary)',
+              border: `1px solid ${
+                activeTab === 'leaderboard' ? 'var(--border-strong)' : 'transparent'
+              }`,
+            }}
+          >
+            <span className="inline-flex items-center gap-2.5">
+              <Trophy
+                className="w-4 h-4 shrink-0"
+                style={{
+                  color:
+                    activeTab === 'leaderboard'
+                      ? 'var(--accent-active-text)'
+                      : 'var(--text-muted)',
+                }}
+                strokeWidth={1.9}
+              />
+              <span>Classement général</span>
             </span>
           </button>
 
@@ -426,7 +463,7 @@ export function Sidebar({
                   className="w-3 h-3 shrink-0"
                   style={{ color: 'var(--accent-active-text)' }}
                 />
-                <span className="font-semibold">{playerElo.profile.rating}</span>
+                <span className="font-semibold">{ratingLabel}</span>
                 <span>·</span>
                 <span className="font-sans truncate">{playerElo.tier}</span>
               </div>
@@ -579,6 +616,31 @@ export function Sidebar({
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
+            onClick={() =>
+              onSelectTab(activeTab === 'leaderboard' ? 'play' : 'leaderboard')
+            }
+            aria-label="Classement général"
+            className="tactile-btn inline-flex items-center justify-center w-8 h-8 rounded-lg"
+            style={{
+              backgroundColor:
+                activeTab === 'leaderboard'
+                  ? 'var(--accent-active-bg)'
+                  : 'var(--bg-surface)',
+              color:
+                activeTab === 'leaderboard'
+                  ? 'var(--accent-active-text)'
+                  : 'var(--text-primary)',
+              border: `1px solid ${
+                activeTab === 'leaderboard'
+                  ? 'var(--accent-active)'
+                  : 'var(--border-cell)'
+              }`,
+            }}
+          >
+            <Trophy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
             onClick={() => onSelectTab(activeTab === 'stats' ? 'play' : 'stats')}
             className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold"
             style={{
@@ -598,9 +660,7 @@ export function Sidebar({
             }}
           >
             <BarChart3 className="w-3.5 h-3.5" />
-            <span className="font-mono tabular-nums">
-              {playerElo.profile.rating}
-            </span>
+            <span className="font-mono tabular-nums">{ratingLabel}</span>
           </button>
 
           {user ? (

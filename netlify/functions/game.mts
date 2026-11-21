@@ -6,10 +6,14 @@ import {
 } from 'node:crypto';
 import type { Config } from '@netlify/functions';
 import { getDatabase } from '@netlify/database';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import {
   createDefaultEloProfile,
   getEloTier,
   getNextEloTier,
+  inflateDeviation,
+  isProvisional,
+  normalizeEloProfile,
   type EloProfile,
 } from '../../shared/elo.js';
 import type { Move, Player } from '../../shared/gameEngine.js';
@@ -32,8 +36,12 @@ import {
   type StoredRoom,
 } from '../../shared/onlineRoomLogic.js';
 import type {
+  AuthProvider,
   AuthUser,
   EndReason,
+  LeaderboardEntry,
+  LeaderboardPayload,
+  LobbyStats,
   MatchHistoryItem,
   PlayerStatsPayload,
   TimeControl,
@@ -47,7 +55,113 @@ const db = getDatabase();
 
 const QUEUE_STALE_MS = 25_000;
 const ROOM_CLEANUP_STALE_MS = 2 * 60 * 60 * 1000;
-const AUTH_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const AUTH_SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+const LIVE_ROOM_WINDOW_MS = 30_000;
+/** Parties classées minimum pour apparaître au classement général. */
+const LEADERBOARD_MIN_GAMES = 3;
+
+const FIREBASE_JWKS_URL = new URL(
+  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
+);
+let firebaseJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+function getFirebaseProjectId(): string {
+  return (
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.VITE_FIREBASE_PROJECT_ID ||
+    ''
+  ).trim();
+}
+
+interface VerifiedFirebaseIdentity {
+  uid: string;
+  email: string | null;
+  emailVerified: boolean;
+  name: string | null;
+  picture: string | null;
+  provider: AuthProvider;
+}
+
+function mapFirebaseProvider(raw: string | undefined): AuthProvider {
+  switch (raw) {
+    case 'google.com':
+      return 'google';
+    case 'apple.com':
+      return 'apple';
+    case 'microsoft.com':
+      return 'microsoft';
+    default:
+      return 'email';
+  }
+}
+
+/** Vérifie un jeton d'identité Firebase (signature Google, émetteur, audience). */
+async function verifyFirebaseIdToken(
+  idToken: string,
+): Promise<VerifiedFirebaseIdentity> {
+  const projectId = getFirebaseProjectId();
+  if (!projectId) {
+    throw new Error('FIREBASE_NOT_CONFIGURED');
+  }
+  firebaseJwks ??= createRemoteJWKSet(FIREBASE_JWKS_URL);
+  const { payload } = await jwtVerify(idToken, firebaseJwks, {
+    issuer: `https://securetoken.google.com/${projectId}`,
+    audience: projectId,
+    algorithms: ['RS256'],
+  });
+  if (!payload.sub) {
+    throw new Error('INVALID_TOKEN');
+  }
+  const firebaseClaim = payload.firebase as
+    | { sign_in_provider?: string }
+    | undefined;
+  return {
+    uid: payload.sub,
+    email: typeof payload.email === 'string' ? payload.email : null,
+    emailVerified: payload.email_verified === true,
+    name: typeof payload.name === 'string' ? payload.name : null,
+    picture: typeof payload.picture === 'string' ? payload.picture : null,
+    provider: mapFirebaseProvider(firebaseClaim?.sign_in_provider),
+  };
+}
+
+/** Transforme un nom ou une adresse en base de pseudo valide. */
+function suggestUsernameBase(
+  name: string | null,
+  email: string | null,
+): string {
+  const source =
+    (name && name.trim()) || (email ? email.split('@')[0] : '') || 'Joueur';
+  const cleaned = source
+    .replace(/[._]+/g, ' ')
+    .replace(/[^\p{L}\p{N} -]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 16)
+    .trim();
+  return cleaned.length >= 3 ? cleaned : 'Joueur';
+}
+
+async function findAvailableUsername(
+  client: Pick<PgClientLike, 'query'>,
+  base: string,
+): Promise<string> {
+  const candidates = [base];
+  for (let i = 0; i < 25; i++) {
+    const suffix = String(Math.floor(10 + Math.random() * 9990));
+    candidates.push(`${base.slice(0, 20 - suffix.length)}${suffix}`);
+  }
+  for (const candidate of candidates) {
+    const res = await client.query(
+      'SELECT 1 FROM users WHERE username_lower = $1',
+      [candidate.toLowerCase()],
+    );
+    if (res.rows.length === 0) {
+      return candidate;
+    }
+  }
+  return `Joueur${randomBytes(3).toString('hex')}`.slice(0, 20);
+}
 
 interface PgClientLike {
   query: (
@@ -128,19 +242,84 @@ async function resolveAuthUser(
   const token = extractBearerToken(req);
   if (!token) return null;
   const res = await queryable.query(
-    `SELECT u.id, u.username, u.created_at
+    `SELECT u.id, u.username, u.created_at, u.auth_provider, u.avatar_url
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token = $1 AND s.expires_at > $2`,
     [token, now],
   );
   if (res.rows.length === 0) return null;
-  const row = res.rows[0];
+  return rowToAuthUser(res.rows[0]);
+}
+
+function rowToAuthUser(row: Record<string, unknown>): AuthUser {
+  const provider = String(row.auth_provider ?? 'password');
   return {
     id: String(row.id),
     username: String(row.username),
     createdAt: Number(row.created_at),
+    provider: (['password', 'google', 'apple', 'microsoft', 'email'].includes(provider)
+      ? provider
+      : 'password') as AuthProvider,
+    avatarUrl: row.avatar_url ? String(row.avatar_url) : null,
   };
+}
+
+async function createAuthSession(
+  client: Pick<PgClientLike, 'query'>,
+  userId: string,
+  now: number,
+): Promise<string> {
+  const token = randomBytes(32).toString('hex');
+  await client.query(
+    `INSERT INTO auth_sessions (token, user_id, created_at, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [token, userId, now, now + AUTH_SESSION_TTL_MS],
+  );
+  return token;
+}
+
+/**
+ * Transfère la progression d'un invité (classement + historique) vers un
+ * compte tout juste créé, pour ne rien perdre en s'inscrivant.
+ */
+async function mergeGuestProgressIntoNewAccount(
+  client: Pick<PgClientLike, 'query'>,
+  guestProfileId: string | undefined,
+  guestPseudo: string | undefined,
+  userKey: string,
+  username: string,
+  now: number,
+): Promise<EloProfile | null> {
+  if (!guestProfileId || !guestPseudo) return null;
+  const guestKey = makeProfileKey(guestProfileId, guestPseudo);
+  if (guestKey === userKey) return null;
+
+  const guestRes = await client.query(
+    `SELECT rating, rd, volatility, games_played, wins, draws, losses,
+            peak_rating, streak, last_played_at
+     FROM elo_profiles WHERE profile_key = $1`,
+    [guestKey],
+  );
+  const guestRow = guestRes.rows[0];
+  if (!guestRow || Number(guestRow.games_played) <= 0) return null;
+
+  const existing = await loadEloProfile(client, userKey);
+  if (existing.gamesPlayed > 0) return null;
+
+  const guestProfile = rowToEloProfile(guestRow);
+  await saveEloProfile(client, userKey, username, guestProfile, now);
+  await client.query(
+    'UPDATE match_history SET profile_key = $1 WHERE profile_key = $2',
+    [userKey, guestKey],
+  );
+  await client.query('DELETE FROM elo_profiles WHERE profile_key = $1', [guestKey]);
+  return guestProfile;
+}
+
+/** Profil présenté au client : la déviation tient compte de l'inactivité. */
+function presentProfile(profile: EloProfile, now: number): EloProfile {
+  return { ...profile, rd: Math.round(inflateDeviation(profile, now)) };
 }
 
 async function resolveIdentity(
@@ -201,17 +380,26 @@ async function withTx<T>(fn: (client: PgClientLike) => Promise<T>): Promise<T> {
   }
 }
 
+function numOrUndefined(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function rowToEloProfile(row: Record<string, unknown> | undefined): EloProfile {
   if (!row) return createDefaultEloProfile();
-  return {
-    rating: Number(row.rating) || 1200,
-    gamesPlayed: Number(row.games_played) || 0,
-    wins: Number(row.wins) || 0,
-    draws: Number(row.draws) || 0,
-    losses: Number(row.losses) || 0,
-    peakRating: Number(row.peak_rating) || Number(row.rating) || 1200,
-    streak: Number(row.streak) || 0,
-  };
+  return normalizeEloProfile({
+    rating: numOrUndefined(row.rating),
+    rd: numOrUndefined(row.rd),
+    volatility: numOrUndefined(row.volatility),
+    gamesPlayed: numOrUndefined(row.games_played),
+    wins: numOrUndefined(row.wins),
+    draws: numOrUndefined(row.draws),
+    losses: numOrUndefined(row.losses),
+    peakRating: numOrUndefined(row.peak_rating),
+    streak: numOrUndefined(row.streak),
+    lastPlayedAt: numOrUndefined(row.last_played_at) ?? null,
+  });
 }
 
 async function loadEloProfile(
@@ -219,7 +407,8 @@ async function loadEloProfile(
   profileKey: string,
 ): Promise<EloProfile> {
   const res = await client.query(
-    `SELECT rating, games_played, wins, draws, losses, peak_rating, streak
+    `SELECT rating, rd, volatility, games_played, wins, draws, losses,
+            peak_rating, streak, last_played_at
      FROM elo_profiles
      WHERE profile_key = $1`,
     [profileKey],
@@ -236,28 +425,35 @@ async function saveEloProfile(
 ): Promise<void> {
   await client.query(
     `INSERT INTO elo_profiles
-       (profile_key, pseudo, rating, games_played, wins, draws, losses, peak_rating, streak, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (profile_key, pseudo, rating, rd, volatility, games_played, wins, draws,
+        losses, peak_rating, streak, last_played_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (profile_key) DO UPDATE SET
        pseudo = EXCLUDED.pseudo,
        rating = EXCLUDED.rating,
+       rd = EXCLUDED.rd,
+       volatility = EXCLUDED.volatility,
        games_played = EXCLUDED.games_played,
        wins = EXCLUDED.wins,
        draws = EXCLUDED.draws,
        losses = EXCLUDED.losses,
        peak_rating = EXCLUDED.peak_rating,
        streak = EXCLUDED.streak,
+       last_played_at = EXCLUDED.last_played_at,
        updated_at = EXCLUDED.updated_at`,
     [
       profileKey,
       sanitizePseudo(pseudo),
-      profile.rating,
+      Math.round(profile.rating),
+      profile.rd,
+      profile.volatility,
       profile.gamesPlayed,
       profile.wins,
       profile.draws,
       profile.losses,
-      profile.peakRating,
+      Math.round(profile.peakRating),
       profile.streak,
+      profile.lastPlayedAt,
       now,
     ],
   );
@@ -327,7 +523,12 @@ async function commitRoomEloIfEnded(
 
   const profX = await loadEloProfile(client, room.players.X.profileKey);
   const profO = await loadEloProfile(client, room.players.O.profileKey);
-  const updated = applyEloOutcomeToRoom(room, profX, profO);
+  const updated = applyEloOutcomeToRoom(room, profX, profO, now);
+
+  if (!updated.rated) {
+    // Partie annulée : rien n'est enregistré au classement ni à l'historique
+    return updated.room;
+  }
 
   await saveEloProfile(
     client,
@@ -388,9 +589,254 @@ export default async (req: Request): Promise<Response> => {
 
     const poolQuery = db.pool as unknown as Pick<PgClientLike, 'query'>;
 
+    // GET /api/game/lobby — activité en direct (preuve sociale sur l'accueil)
+    if (method === 'GET' && subPath === '/lobby') {
+      const liveRes = await db.pool.query(
+        `SELECT COUNT(*)::int AS cnt
+         FROM rooms
+         WHERE updated_at > $1 AND state_json->>'phase' = 'playing'`,
+        [now - LIVE_ROOM_WINDOW_MS],
+      );
+      const queueRes = await db.pool.query(
+        `SELECT time_control, COUNT(*)::int AS cnt
+         FROM matchmaking_queue
+         WHERE matched_code IS NULL AND last_seen_at >= $1
+         GROUP BY time_control`,
+        [now - QUEUE_STALE_MS],
+      );
+      const queue: Record<TimeControl, number> = { unlimited: 0, rapid: 0, blitz: 0 };
+      for (const row of queueRes.rows as Record<string, unknown>[]) {
+        if (isTimeControl(row.time_control)) {
+          queue[row.time_control] = Number(row.cnt) || 0;
+        }
+      }
+      const liveGames = Number(liveRes.rows[0]?.cnt ?? 0);
+      const payload: LobbyStats = {
+        liveGames,
+        queue,
+        playersOnline: liveGames * 2 + queue.unlimited + queue.rapid + queue.blitz,
+      };
+      return jsonResponse({ ok: true, data: payload });
+    }
+
+    // GET /api/game/leaderboard — classement général des comptes
+    if (method === 'GET' && subPath === '/leaderboard') {
+      const viewer = await resolveAuthUser(req, poolQuery, now);
+      const selfKey = viewer ? `user:${viewer.id}` : null;
+      const res = await db.pool.query(
+        `SELECT e.profile_key, COALESCE(u.username, e.pseudo) AS pseudo,
+                e.rating, e.rd, e.volatility, e.games_played, e.wins, e.last_played_at
+         FROM elo_profiles e
+         LEFT JOIN users u ON e.profile_key = 'user:' || u.id
+         WHERE e.profile_key LIKE 'user:%' AND e.games_played >= $1
+         ORDER BY e.rating DESC, e.games_played DESC
+         LIMIT 50`,
+        [LEADERBOARD_MIN_GAMES],
+      );
+      const entries: LeaderboardEntry[] = (res.rows as Record<string, unknown>[]).map(
+        (row, index) => {
+          const profile = rowToEloProfile(row);
+          const rd = inflateDeviation(profile, now);
+          return {
+            rank: index + 1,
+            pseudo: String(row.pseudo),
+            rating: profile.rating,
+            rd: Math.round(rd),
+            provisional: isProvisional(rd),
+            gamesPlayed: profile.gamesPlayed,
+            wins: profile.wins,
+            tier: getEloTier(profile.rating).label,
+            isSelf: selfKey !== null && row.profile_key === selfKey,
+          };
+        },
+      );
+
+      let selfRank: number | null = null;
+      if (selfKey && !entries.some((e) => e.isSelf)) {
+        const self = await loadEloProfile(poolQuery, selfKey);
+        if (self.gamesPlayed >= LEADERBOARD_MIN_GAMES) {
+          const rankRes = await db.pool.query(
+            `SELECT COUNT(*)::int AS cnt
+             FROM elo_profiles
+             WHERE profile_key LIKE 'user:%' AND games_played >= $1 AND rating > $2`,
+            [LEADERBOARD_MIN_GAMES, self.rating],
+          );
+          selfRank = Number(rankRes.rows[0]?.cnt ?? 0) + 1;
+        }
+      }
+
+      const payload: LeaderboardPayload = {
+        entries,
+        selfRank,
+        minGames: LEADERBOARD_MIN_GAMES,
+      };
+      return jsonResponse({ ok: true, data: payload });
+    }
+
+    // POST /api/game/auth/oauth — Google / Apple / Microsoft / lien e-mail via Firebase
+    if (method === 'POST' && subPath === '/auth/oauth') {
+      const body = await readJsonBody<{
+        idToken?: string;
+        guestProfileId?: string;
+        guestPseudo?: string;
+      }>(req);
+      if (!body?.idToken || body.idToken.length > 4096) {
+        return jsonResponse({ ok: false, error: 'Jeton de connexion manquant.' }, 400);
+      }
+
+      let identity: VerifiedFirebaseIdentity;
+      try {
+        identity = await verifyFirebaseIdToken(body.idToken);
+      } catch (err) {
+        const notConfigured =
+          err instanceof Error && err.message === 'FIREBASE_NOT_CONFIGURED';
+        return jsonResponse(
+          {
+            ok: false,
+            error: notConfigured
+              ? 'La connexion externe n’est pas encore activée sur ce site.'
+              : 'Connexion refusée : jeton invalide ou expiré. Réessayez.',
+          },
+          notConfigured ? 503 : 401,
+        );
+      }
+
+      if (identity.provider === 'email' && !identity.emailVerified) {
+        return jsonResponse(
+          { ok: false, error: 'Adresse e-mail non vérifiée.' },
+          401,
+        );
+      }
+
+      const providerUid = `firebase:${identity.uid}`;
+      const data = await withTx(async (client) => {
+        await client.query('DELETE FROM auth_sessions WHERE expires_at < $1', [now]);
+        const found = await client.query(
+          `SELECT id, username, created_at, auth_provider, avatar_url
+           FROM users WHERE provider_uid = $1`,
+          [providerUid],
+        );
+
+        if (found.rows.length > 0) {
+          const user = rowToAuthUser(found.rows[0]);
+          if (identity.picture && identity.picture !== user.avatarUrl) {
+            await client.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [
+              identity.picture,
+              user.id,
+            ]);
+            user.avatarUrl = identity.picture;
+          }
+          const token = await createAuthSession(client, user.id, now);
+          const profile = await loadEloProfile(client, `user:${user.id}`);
+          return { token, user, profile, isNew: false, mergedGuest: false };
+        }
+
+        const userId = randomUUID();
+        const username = await findAvailableUsername(
+          client,
+          suggestUsernameBase(identity.name, identity.email),
+        );
+        await client.query(
+          `INSERT INTO users
+             (id, username, username_lower, password_hash, salt, created_at,
+              auth_provider, provider_uid, email, avatar_url)
+           VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, $8)`,
+          [
+            userId,
+            username,
+            username.toLowerCase(),
+            now,
+            identity.provider,
+            providerUid,
+            identity.email,
+            identity.picture,
+          ],
+        );
+        const userKey = `user:${userId}`;
+        const merged = await mergeGuestProgressIntoNewAccount(
+          client,
+          body.guestProfileId,
+          body.guestPseudo,
+          userKey,
+          username,
+          now,
+        );
+        const profile = merged ?? createDefaultEloProfile();
+        if (!merged) {
+          await saveEloProfile(client, userKey, username, profile, now);
+        }
+        const token = await createAuthSession(client, userId, now);
+        const user: AuthUser = {
+          id: userId,
+          username,
+          createdAt: now,
+          provider: identity.provider,
+          avatarUrl: identity.picture,
+        };
+        return { token, user, profile, isNew: true, mergedGuest: Boolean(merged) };
+      });
+
+      return jsonResponse({
+        ok: true,
+        data: {
+          token: data.token,
+          user: data.user,
+          profile: presentProfile(data.profile, now),
+          tier: getEloTier(data.profile.rating).label,
+          isNew: data.isNew,
+          mergedGuest: data.mergedGuest,
+        },
+      });
+    }
+
+    // POST /api/game/auth/username — changer de pseudo (compte connecté)
+    if (method === 'POST' && subPath === '/auth/username') {
+      const user = await resolveAuthUser(req, poolQuery, now);
+      if (!user) {
+        return jsonResponse({ ok: false, error: 'Connexion requise.' }, 401);
+      }
+      const body = await readJsonBody<{ username?: string }>(req);
+      const valid = validateUsername(body?.username ?? '');
+      if (!valid.ok) {
+        return jsonResponse({ ok: false, error: valid.error }, 400);
+      }
+
+      const result = await withTx(async (client) => {
+        const taken = await client.query(
+          'SELECT id FROM users WHERE username_lower = $1 AND id <> $2',
+          [valid.usernameLower, user.id],
+        );
+        if (taken.rows.length > 0) {
+          return { ok: false as const, error: 'Ce pseudo est déjà utilisé.' };
+        }
+        await client.query(
+          'UPDATE users SET username = $1, username_lower = $2 WHERE id = $3',
+          [valid.username, valid.usernameLower, user.id],
+        );
+        await client.query(
+          'UPDATE elo_profiles SET pseudo = $1 WHERE profile_key = $2',
+          [valid.username, `user:${user.id}`],
+        );
+        return { ok: true as const };
+      });
+
+      if (!result.ok) {
+        return jsonResponse({ ok: false, error: result.error }, 409);
+      }
+      return jsonResponse({
+        ok: true,
+        data: { user: { ...user, username: valid.username } },
+      });
+    }
+
     // POST /api/game/auth/register
     if (method === 'POST' && subPath === '/auth/register') {
-      const body = await readJsonBody<{ username?: string; password?: string }>(req);
+      const body = await readJsonBody<{
+        username?: string;
+        password?: string;
+        guestProfileId?: string;
+        guestPseudo?: string;
+      }>(req);
       const validUser = validateUsername(body?.username ?? '');
       if (!validUser.ok) {
         return jsonResponse({ ok: false, error: validUser.error }, 400);
@@ -422,27 +868,34 @@ export default async (req: Request): Promise<Response> => {
         const userId = randomUUID();
         const salt = randomBytes(16).toString('hex');
         const passwordHash = hashPassword(password, salt);
-        const token = randomBytes(32).toString('hex');
-        const expiresAt = now + AUTH_SESSION_TTL_MS;
 
         await client.query(
-          `INSERT INTO users (id, username, username_lower, password_hash, salt, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO users (id, username, username_lower, password_hash, salt, created_at, auth_provider)
+           VALUES ($1, $2, $3, $4, $5, $6, 'password')`,
           [userId, validUser.username, validUser.usernameLower, passwordHash, salt, now],
         );
-        await client.query(
-          `INSERT INTO auth_sessions (token, user_id, created_at, expires_at)
-           VALUES ($1, $2, $3, $4)`,
-          [token, userId, now, expiresAt],
-        );
+        const token = await createAuthSession(client, userId, now);
 
-        const profile = createDefaultEloProfile();
-        await saveEloProfile(client, `user:${userId}`, validUser.username, profile, now);
+        const userKey = `user:${userId}`;
+        const merged = await mergeGuestProgressIntoNewAccount(
+          client,
+          body?.guestProfileId,
+          body?.guestPseudo,
+          userKey,
+          validUser.username,
+          now,
+        );
+        const profile = merged ?? createDefaultEloProfile();
+        if (!merged) {
+          await saveEloProfile(client, userKey, validUser.username, profile, now);
+        }
 
         const user: AuthUser = {
           id: userId,
           username: validUser.username,
           createdAt: now,
+          provider: 'password',
+          avatarUrl: null,
         };
 
         return {
@@ -450,6 +903,7 @@ export default async (req: Request): Promise<Response> => {
           token,
           user,
           profile,
+          mergedGuest: Boolean(merged),
           tier: getEloTier(profile.rating).label,
         };
       });
@@ -462,8 +916,9 @@ export default async (req: Request): Promise<Response> => {
         data: {
           token: result.token,
           user: result.user,
-          profile: result.profile,
+          profile: presentProfile(result.profile, now),
           tier: result.tier,
+          mergedGuest: result.mergedGuest,
         },
       });
     }
@@ -481,7 +936,7 @@ export default async (req: Request): Promise<Response> => {
       }
 
       const foundRes = await db.pool.query(
-        `SELECT id, username, password_hash, salt, created_at
+        `SELECT id, username, password_hash, salt, created_at, auth_provider, avatar_url
          FROM users
          WHERE username_lower = $1`,
         [cleanName.toLowerCase()],
@@ -494,6 +949,22 @@ export default async (req: Request): Promise<Response> => {
       }
 
       const row = foundRes.rows[0];
+      if (!row.password_hash || !row.salt) {
+        const providerLabel: Record<string, string> = {
+          google: 'Google',
+          apple: 'Apple',
+          microsoft: 'Microsoft',
+          email: 'le lien e-mail',
+        };
+        const label = providerLabel[String(row.auth_provider)] ?? 'votre fournisseur';
+        return jsonResponse(
+          {
+            ok: false,
+            error: `Ce compte se connecte avec ${label}. Utilisez le bouton correspondant.`,
+          },
+          401,
+        );
+      }
       const validPwd = verifyPassword(
         password,
         String(row.salt),
@@ -506,25 +977,16 @@ export default async (req: Request): Promise<Response> => {
         );
       }
 
-      const user: AuthUser = {
-        id: String(row.id),
-        username: String(row.username),
-        createdAt: Number(row.created_at),
-      };
+      const user = rowToAuthUser(row);
 
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM auth_sessions WHERE expires_at < $1', [now]);
-        const token = randomBytes(32).toString('hex');
-        await client.query(
-          `INSERT INTO auth_sessions (token, user_id, created_at, expires_at)
-           VALUES ($1, $2, $3, $4)`,
-          [token, user.id, now, now + AUTH_SESSION_TTL_MS],
-        );
+        const token = await createAuthSession(client, user.id, now);
         const profile = await loadEloProfile(client, `user:${user.id}`);
         return {
           token,
           user,
-          profile,
+          profile: presentProfile(profile, now),
           tier: getEloTier(profile.rating).label,
         };
       });
@@ -543,7 +1005,7 @@ export default async (req: Request): Promise<Response> => {
         ok: true,
         data: {
           user,
-          profile,
+          profile: presentProfile(profile, now),
           tier: getEloTier(profile.rating).label,
         },
       });
@@ -574,7 +1036,7 @@ export default async (req: Request): Promise<Response> => {
       return jsonResponse({
         ok: true,
         data: {
-          profile,
+          profile: presentProfile(profile, now),
           tier: getEloTier(profile.rating).label,
         },
       });
@@ -642,9 +1104,24 @@ export default async (req: Request): Promise<Response> => {
             ]
           : [{ rating: profile.rating, playedAt: now }];
 
+      const rankedRes = await db.pool.query(
+        `SELECT COUNT(*) FILTER (WHERE rating < $1)::int AS below,
+                COUNT(*)::int AS total
+         FROM elo_profiles
+         WHERE games_played >= $2`,
+        [profile.rating, LEADERBOARD_MIN_GAMES],
+      );
+      const below = Number(rankedRes.rows[0]?.below ?? 0);
+      const rankedPlayers = Number(rankedRes.rows[0]?.total ?? 0);
+      const percentile =
+        profile.gamesPlayed >= LEADERBOARD_MIN_GAMES && rankedPlayers > 1
+          ? Math.round((below / (rankedPlayers - 1)) * 100)
+          : null;
+
+      const shown = presentProfile(profile, now);
       const nextTierObj = getNextEloTier(profile.rating);
       const payload: PlayerStatsPayload = {
-        profile,
+        profile: shown,
         tier: getEloTier(profile.rating).label,
         nextTier: nextTierObj
           ? { label: nextTierObj.label, min: nextTierObj.min }
@@ -655,6 +1132,9 @@ export default async (req: Request): Promise<Response> => {
             : 0,
         matches,
         eloHistory,
+        provisional: isProvisional(shown.rd),
+        percentile,
+        rankedPlayers,
       };
 
       return jsonResponse({ ok: true, data: payload });
@@ -1121,16 +1601,23 @@ export default async (req: Request): Promise<Response> => {
           body.playerId,
         ]);
 
+        // Appariement par niveau : on privilégie l'adversaire au classement le
+        // plus proche, puis le plus ancien dans la file. Personne n'est jamais
+        // refusé (petite communauté), et on ne s'apparie pas avec soi-même.
+        const selfProfile = await loadEloProfile(client, profileKey);
         const opponentRes = await client.query(
-          `SELECT player_id, profile_key, pseudo
-           FROM matchmaking_queue
-           WHERE time_control = $1
-             AND matched_code IS NULL
-             AND player_id <> $2
-           ORDER BY joined_at ASC
+          `SELECT q.player_id, q.profile_key, q.pseudo
+           FROM matchmaking_queue q
+           LEFT JOIN elo_profiles e ON e.profile_key = q.profile_key
+           WHERE q.time_control = $1
+             AND q.matched_code IS NULL
+             AND q.player_id <> $2
+             AND q.profile_key <> $3
+             AND q.last_seen_at >= $4
+           ORDER BY ABS(COALESCE(e.rating, 1200) - $5) ASC, q.joined_at ASC
            LIMIT 1
-           FOR UPDATE SKIP LOCKED`,
-          [timeControl, body.playerId],
+           FOR UPDATE OF q SKIP LOCKED`,
+          [timeControl, body.playerId, profileKey, now - QUEUE_STALE_MS, selfProfile.rating],
         );
 
         if (opponentRes.rows.length > 0) {
