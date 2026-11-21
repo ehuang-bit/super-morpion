@@ -8,6 +8,7 @@ import {
   LogOut,
   Palette,
   Swords,
+  Target,
   Trophy,
   UserCheck,
   Vibrate,
@@ -16,8 +17,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { CHIP_SPRING } from '../utils/motion';
+import { StreakPill } from './StreakBadge';
 
-export type NavTab = 'play' | 'stats' | 'leaderboard' | 'customize';
+export type NavTab = 'play' | 'daily' | 'stats' | 'leaderboard' | 'customize';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -39,6 +41,7 @@ type NavItemId = NavTab | 'rules';
 
 const NAV_ITEMS: readonly { id: NavItemId; label: string; icon: LucideIcon }[] = [
   { id: 'play', label: 'Plateau & Duel', icon: Swords },
+  { id: 'daily', label: 'Défi du jour', icon: Target },
   { id: 'stats', label: 'Mes statistiques', icon: BarChart3 },
   { id: 'leaderboard', label: 'Classement général', icon: Trophy },
   { id: 'customize', label: 'Couleurs & plateau', icon: Palette },
@@ -192,6 +195,16 @@ export function Sidebar({
                         {user ? 'Compte' : 'Invité'}
                       </span>
                     </div>
+                    {user?.streak && (
+                      <div className="mt-1">
+                        <StreakPill
+                          streak={user.streak}
+                          size="xs"
+                          showLabel
+                          onClick={() => onSelectTab('stats')}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -339,6 +352,14 @@ export function Sidebar({
             <BookOpen className="w-4 h-4" />
           </button>
 
+          {user?.streak && (
+            <StreakPill
+              streak={user.streak}
+              size="xs"
+              onClick={() => onSelectTab('stats')}
+            />
+          )}
+
           {user ? (
             <button
               type="button"
@@ -351,7 +372,7 @@ export function Sidebar({
               }}
             >
               <UserCheck className="w-3.5 h-3.5" />
-              <span className="max-w-[110px] truncate">{user.username}</span>
+              <span className="max-w-[96px] truncate">{user.username}</span>
             </button>
           ) : (
             <button

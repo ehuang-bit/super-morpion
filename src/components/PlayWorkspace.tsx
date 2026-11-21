@@ -14,13 +14,16 @@ import {
   TIME_CONTROL_LABELS,
   type AuthUser,
   type LobbyStats,
+  type RoomMode,
   type RoomPeekInfo,
   type RoomSnapshot,
+  type TeamSeat,
   type TimeControl,
 } from '@shared/protocol';
 import {
   ArrowRight,
   Award,
+  Check,
   ChevronRight,
   Clock,
   GraduationCap,
@@ -29,11 +32,15 @@ import {
   MonitorSmartphone,
   RotateCcw,
   Swords,
+  Target,
   UserCheck,
+  Users,
   X,
 } from 'lucide-react';
+import { getDailyPuzzle } from '../data/dailyPuzzles';
 import type { ConnectionStatus } from '../hooks/useOnlineGame';
 import type { BoardPreferences } from '../types/boardPrefs';
+import { getDailyStatus } from '../utils/dailyStorage';
 import { formatElapsedSeconds, normalizeRoomCode } from '../utils/format';
 import { haptics } from '../utils/haptics';
 import { CHIP_SPRING, SMOOTH_EASE } from '../utils/motion';
@@ -41,11 +48,13 @@ import { soundEngine } from '../utils/soundEngine';
 import { getTutorialSeen, saveTutorialSeen } from '../utils/storage';
 import { GlobalBoard } from './GlobalBoard';
 import { JoinPrompt } from './JoinPrompt';
+import { StreakPill } from './StreakBadge';
 import { SymbolMark } from './Symbols';
 import { WaitingLobby } from './WaitingLobby';
 
 interface PlayWorkspaceProps {
   user: AuthUser | null;
+  localPlayerId: string;
   pseudo: string;
   onChangePseudo: (value: string) => void;
   timeControl: TimeControl;
@@ -69,12 +78,14 @@ interface PlayWorkspaceProps {
   routeRoomCode: string | null;
   peekInfo: RoomPeekInfo | null;
   peekError: string | null;
-  onCreateRoom: () => void;
+  onCreateRoom: (mode: RoomMode) => void;
   onJoinCode: (code: string) => void;
+  onSwitchSeat?: (seat: TeamSeat) => void;
   onJoinMatchmaking: () => void;
   onCancelMatchmaking: () => void;
   onCancelWaitingOrPrompt: () => void;
   onOpenStats: () => void;
+  onOpenDaily: () => void;
   /** Incrémenté pour lancer le tutoriel depuis l'extérieur (fenêtre des règles). */
   tutorialRequest: number;
 }
@@ -105,6 +116,7 @@ function buildCaptureLesson(): GameState {
 
 export function PlayWorkspace({
   user,
+  localPlayerId,
   pseudo,
   onChangePseudo,
   timeControl,
@@ -123,15 +135,20 @@ export function PlayWorkspace({
   peekError,
   onCreateRoom,
   onJoinCode,
+  onSwitchSeat,
   onJoinMatchmaking,
   onCancelMatchmaking,
   onCancelWaitingOrPrompt,
   onOpenStats,
+  onOpenDaily,
   tutorialRequest,
 }: PlayWorkspaceProps) {
   const [joinCode, setJoinCode] = useState('');
   const [showJoinCode, setShowJoinCode] = useState(false);
+  const [friendMode, setFriendMode] = useState<RoomMode>('1v1');
   const [elapsed, setElapsed] = useState(0);
+  const dailyInfo = getDailyPuzzle(new Date());
+  const dailyStatus = getDailyStatus(new Date());
   const [sandboxState, setSandboxState] = useState<GameState>(() =>
     createInitialState('X'),
   );
@@ -547,6 +564,8 @@ export function PlayWorkspace({
           {waitingSnapshot ? (
             <WaitingLobby
               snapshot={waitingSnapshot}
+              localPlayerId={localPlayerId}
+              onSwitchSeat={onSwitchSeat}
               onCancel={onCancelWaitingOrPrompt}
             />
           ) : routeRoomCode ? (
@@ -648,16 +667,25 @@ export function PlayWorkspace({
                   </button>
 
                   {user && (
-                    <span
-                      className="shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold"
-                      style={{
-                        backgroundColor: 'var(--x-surface)',
-                        color: 'var(--x-color)',
-                      }}
-                    >
-                      <UserCheck className="w-3 h-3" />
-                      <span className="max-w-[92px] truncate">{user.username}</span>
-                    </span>
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {user.streak && (
+                        <StreakPill
+                          streak={user.streak}
+                          size="xs"
+                          onClick={onOpenStats}
+                        />
+                      )}
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold"
+                        style={{
+                          backgroundColor: 'var(--x-surface)',
+                          color: 'var(--x-color)',
+                        }}
+                      >
+                        <UserCheck className="w-3 h-3" />
+                        <span className="max-w-[78px] truncate">{user.username}</span>
+                      </span>
+                    </div>
                   )}
                 </div>
 
@@ -865,7 +893,7 @@ export function PlayWorkspace({
                   </button>
                 )}
 
-                {/* Jouer avec un ami */}
+                {/* Jouer avec un ami (1v1 ou 2v2 manuel uniquement) */}
                 <div
                   className={`flex flex-col gap-2 transition-opacity ${
                     matchmaking.searching ? 'opacity-50' : ''
@@ -873,7 +901,7 @@ export function PlayWorkspace({
                 >
                   <div className="flex items-center gap-2">
                     <span
-                      className="text-xs font-semibold"
+                      className="text-xs font-semibold shrink-0"
                       style={{ color: 'var(--text-muted)' }}
                     >
                       Avec un ami
@@ -882,24 +910,88 @@ export function PlayWorkspace({
                       className="h-px flex-1"
                       style={{ backgroundColor: 'var(--border-cell)' }}
                     />
+                    <LayoutGroup id="friend-mode">
+                      <div
+                        className="inline-flex items-center gap-0.5 p-0.5 rounded-[8px] shrink-0"
+                        style={{
+                          backgroundColor: 'var(--bg-recessed)',
+                          border: '1px solid var(--border-cell)',
+                        }}
+                        role="radiogroup"
+                        aria-label="Format du salon privé"
+                      >
+                        {(['1v1', '2v2'] as const).map((m) => {
+                          const selected = friendMode === m;
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              disabled={matchmaking.searching}
+                              onClick={() => {
+                                setFriendMode(m);
+                                haptics.tap();
+                              }}
+                              className="relative rounded-[6px] px-2 py-0.5 font-mono text-[11px] font-bold leading-tight transition-colors disabled:cursor-not-allowed"
+                              style={{
+                                color: selected
+                                  ? 'var(--text-primary)'
+                                  : 'var(--text-muted)',
+                              }}
+                            >
+                              {selected && (
+                                <motion.span
+                                  layoutId="friend-mode-pill"
+                                  transition={CHIP_SPRING}
+                                  aria-hidden="true"
+                                  className="absolute inset-0 rounded-[6px]"
+                                  style={{
+                                    backgroundColor: 'var(--bg-board)',
+                                    boxShadow: 'var(--shadow-card)',
+                                  }}
+                                />
+                              )}
+                              <span className="relative">{m}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </LayoutGroup>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={onCreateRoom}
+                      onClick={() => onCreateRoom(friendMode)}
                       disabled={!canLaunch || matchmaking.searching}
                       className={`tactile-btn rounded-[11px] px-2.5 py-2.5 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed ${
                         matchmaking.searching ? '' : 'disabled:opacity-50'
                       }`}
                       style={{
-                        backgroundColor: 'var(--bg-surface)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border-main)',
+                        backgroundColor:
+                          friendMode === '2v2'
+                            ? 'var(--accent-active-bg)'
+                            : 'var(--bg-surface)',
+                        color:
+                          friendMode === '2v2'
+                            ? 'var(--accent-active-text)'
+                            : 'var(--text-primary)',
+                        border: `1px solid ${
+                          friendMode === '2v2'
+                            ? 'var(--accent-active)'
+                            : 'var(--border-main)'
+                        }`,
                       }}
                     >
-                      <Link2 className="w-3.5 h-3.5 shrink-0" strokeWidth={1.9} />
-                      <span>Créer un salon</span>
+                      {friendMode === '2v2' ? (
+                        <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
+                      ) : (
+                        <Link2 className="w-3.5 h-3.5 shrink-0" strokeWidth={1.9} />
+                      )}
+                      <span>
+                        {friendMode === '2v2' ? 'Créer un 2v2' : 'Créer un salon'}
+                      </span>
                     </button>
 
                     <button
@@ -926,23 +1018,86 @@ export function PlayWorkspace({
                     </button>
                   </div>
 
-                  {/* Champ de code dépliable à la demande */}
+                  {/* Aperçu discret du relais 2v2 lorsque l'option 2v2 est choisie */}
+                  <AnimatePresence initial={false}>
+                    {friendMode === '2v2' && (
+                      <motion.div
+                        key="mode-2v2-hint"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: SMOOTH_EASE }}
+                        className="overflow-hidden"
+                      >
+                        <div
+                          className="rounded-[10px] px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px]"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            border: '1px solid var(--border-cell)',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          <span className="font-semibold">AB vs CD · amical</span>
+                          <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px]">
+                            <span
+                              className="rounded px-1 py-0.5"
+                              style={{
+                                backgroundColor: 'var(--x-surface)',
+                                color: 'var(--x-color)',
+                              }}
+                            >
+                              A
+                            </span>
+                            <span style={{ color: 'var(--text-muted)' }}>→</span>
+                            <span
+                              className="rounded px-1 py-0.5"
+                              style={{
+                                backgroundColor: 'var(--o-surface)',
+                                color: 'var(--o-color)',
+                              }}
+                            >
+                              C
+                            </span>
+                            <span style={{ color: 'var(--text-muted)' }}>→</span>
+                            <span
+                              className="rounded px-1 py-0.5"
+                              style={{
+                                backgroundColor: 'var(--x-surface)',
+                                color: 'var(--x-color)',
+                              }}
+                            >
+                              B
+                            </span>
+                            <span style={{ color: 'var(--text-muted)' }}>→</span>
+                            <span
+                              className="rounded px-1 py-0.5"
+                              style={{
+                                backgroundColor: 'var(--o-surface)',
+                                color: 'var(--o-color)',
+                              }}
+                            >
+                              D
+                            </span>
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Champ de code dépliable à la demande (marge interne anti-rognage au focus) */}
                   <AnimatePresence initial={false}>
                     {showJoinCode && !matchmaking.searching && (
                       <motion.form
                         id="join-code-form"
                         key="join-code-form"
                         onSubmit={handleJoinSubmit}
-                        initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
-                        animate={{
-                          height: 'auto',
-                          opacity: 1,
-                          transitionEnd: { overflow: 'visible' },
-                        }}
-                        exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2, ease: SMOOTH_EASE }}
+                        className="overflow-hidden -mx-1"
                       >
-                        <div className="flex gap-2 pt-0.5">
+                        <div className="flex gap-2 p-1">
                           <label htmlFor="join-code-input" className="sr-only">
                             Code du salon à 6 caractères
                           </label>
@@ -1003,6 +1158,77 @@ export function PlayWorkspace({
                   </p>
                 )}
               </motion.div>
+
+              {/* Carte compacte : Défi tactique du jour */}
+              <motion.button
+                type="button"
+                onClick={onOpenDaily}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.34, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
+                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-left"
+                style={{
+                  backgroundColor: 'var(--bg-board)',
+                  border: `1px solid ${
+                    dailyStatus.solvedToday ? 'var(--x-color)' : 'var(--border-main)'
+                  }`,
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor: dailyStatus.solvedToday
+                        ? 'var(--x-surface)'
+                        : 'var(--accent-active-bg)',
+                      color: dailyStatus.solvedToday
+                        ? 'var(--x-color)'
+                        : 'var(--accent-active-text)',
+                      border: `1px solid ${
+                        dailyStatus.solvedToday
+                          ? 'var(--x-color)'
+                          : 'var(--accent-active)'
+                      }`,
+                    }}
+                  >
+                    {dailyStatus.solvedToday ? (
+                      <Check className="w-4 h-4" strokeWidth={2.4} />
+                    ) : (
+                      <Target className="w-4 h-4" strokeWidth={2} />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="text-xs font-bold leading-tight"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        Défi du jour #{dailyInfo.number}
+                      </span>
+                      <span
+                        className="font-mono text-[10px] font-bold"
+                        style={{ color: 'var(--accent-active-text)' }}
+                        aria-label={`Difficulté ${dailyInfo.puzzle.difficulty} sur 3`}
+                      >
+                        {'★'.repeat(dailyInfo.puzzle.difficulty)}
+                      </span>
+                    </span>
+                    <span
+                      className="text-[11px] truncate mt-0.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {dailyStatus.solvedToday
+                        ? 'Résolu aujourd’hui · Rejouer ou s’entraîner'
+                        : dailyInfo.puzzle.title}
+                    </span>
+                  </span>
+                </span>
+                <ChevronRight
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+              </motion.button>
             </>
           )}
         </aside>

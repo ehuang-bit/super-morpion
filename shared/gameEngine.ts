@@ -19,6 +19,8 @@ export interface MoveRecord {
   boardIndex: number;
   cellIndex: number;
   player: Player;
+  /** Siège en mode 2v2 (A/B pour X, C/D pour O). */
+  seat?: 'A' | 'B' | 'C' | 'D';
   moveNumber: number;
   capturedBoard: boolean;
   triggeredFreeMove: boolean;

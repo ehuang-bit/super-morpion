@@ -29,24 +29,37 @@ import {
   normalizeRoomCode,
   resignStoredRoom,
   sanitizePseudo,
+  sendEmoteStoredRoom,
   settleTimeoutsAndAbandonment,
+  switchSeatStoredRoom,
   toRoomPeekInfo,
   toRoomSnapshot,
   touchPlayerPresence,
   voteRematchStoredRoom,
   type StoredRoom,
 } from '../../shared/onlineRoomLogic.js';
-import type {
-  AuthProvider,
-  AuthUser,
-  EndReason,
-  LeaderboardEntry,
-  LeaderboardPayload,
-  LobbyStats,
-  MatchHistoryItem,
-  PlayerStatsPayload,
-  TimeControl,
+import {
+  EMOTE_IDS,
+  type AuthProvider,
+  type AuthUser,
+  type EmoteId,
+  type EndReason,
+  type LeaderboardEntry,
+  type LeaderboardPayload,
+  type LobbyStats,
+  type MatchHistoryItem,
+  type PlayerStatsPayload,
+  type RoomMode,
+  type TeamSeat,
+  type TimeControl,
 } from '../../shared/protocol.js';
+import {
+  createEmptyStreakState,
+  normalizeStoredStreak,
+  presentAccountStreak,
+  recordStreakActivity,
+  type StoredStreakState,
+} from '../../shared/streak.js';
 
 export const config: Config = {
   path: '/api/game/*',
@@ -236,6 +249,89 @@ function extractBearerToken(req: Request): string | null {
   return match ? match[1] : null;
 }
 
+function rowToStoredStreak(row: Record<string, unknown> | undefined): StoredStreakState {
+  if (!row) return createEmptyStreakState();
+  return normalizeStoredStreak({
+    current: numOrUndefined(row.streak_current),
+    best: numOrUndefined(row.streak_best),
+    lastActiveDate:
+      typeof row.streak_last_date === 'string' ? row.streak_last_date : null,
+    totalActiveDays: numOrUndefined(row.streak_total_days),
+    recentDates: Array.isArray(row.streak_recent_dates)
+      ? (row.streak_recent_dates as string[])
+      : [],
+  });
+}
+
+async function recordUserStreakActivity(
+  client: Pick<PgClientLike, 'query'>,
+  userId: string,
+  now: number,
+) {
+  const res = await client.query(
+    `SELECT streak_current, streak_best, streak_last_date,
+            streak_total_days, streak_recent_dates
+     FROM users
+     WHERE id = $1
+     FOR UPDATE`,
+    [userId],
+  );
+  if (res.rows.length === 0) return null;
+  const prev = rowToStoredStreak(res.rows[0]);
+  const updated = recordStreakActivity(prev, now);
+  if (updated.changed) {
+    await client.query(
+      `UPDATE users
+       SET streak_current = $2,
+           streak_best = $3,
+           streak_last_date = $4,
+           streak_total_days = $5,
+           streak_recent_dates = $6
+       WHERE id = $1`,
+      [
+        userId,
+        updated.next.current,
+        updated.next.best,
+        updated.next.lastActiveDate,
+        updated.next.totalActiveDays,
+        updated.next.recentDates,
+      ],
+    );
+  }
+  return {
+    streak: presentAccountStreak(updated.next, now),
+    incremented: updated.incremented,
+    started: updated.started,
+    milestoneReached: updated.milestoneReached,
+  };
+}
+
+async function recordRoomAccountStreaks(
+  client: Pick<PgClientLike, 'query'>,
+  room: StoredRoom,
+  now: number,
+): Promise<void> {
+  if (room.phase !== 'finished' || room.endReason === 'aborted') return;
+  const userIds = new Set<string>();
+  const collect = (profileKey: string | undefined) => {
+    if (profileKey && profileKey.startsWith('user:')) {
+      const id = profileKey.slice('user:'.length);
+      if (id) userIds.add(id);
+    }
+  };
+  if (room.mode === '2v2' && room.seats) {
+    for (const seat of ['A', 'B', 'C', 'D'] as const) {
+      collect(room.seats[seat]?.profileKey);
+    }
+  } else {
+    collect(room.players.X?.profileKey);
+    collect(room.players.O?.profileKey);
+  }
+  for (const userId of userIds) {
+    await recordUserStreakActivity(client, userId, now);
+  }
+}
+
 async function resolveAuthUser(
   req: Request,
   queryable: Pick<PgClientLike, 'query'>,
@@ -244,17 +340,19 @@ async function resolveAuthUser(
   const token = extractBearerToken(req);
   if (!token) return null;
   const res = await queryable.query(
-    `SELECT u.id, u.username, u.created_at, u.auth_provider, u.avatar_url
+    `SELECT u.id, u.username, u.created_at, u.auth_provider, u.avatar_url,
+            u.streak_current, u.streak_best, u.streak_last_date,
+            u.streak_total_days, u.streak_recent_dates
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token = $1 AND s.expires_at > $2`,
     [token, now],
   );
   if (res.rows.length === 0) return null;
-  return rowToAuthUser(res.rows[0]);
+  return rowToAuthUser(res.rows[0], now);
 }
 
-function rowToAuthUser(row: Record<string, unknown>): AuthUser {
+function rowToAuthUser(row: Record<string, unknown>, now = Date.now()): AuthUser {
   const provider = String(row.auth_provider ?? 'password');
   return {
     id: String(row.id),
@@ -264,6 +362,7 @@ function rowToAuthUser(row: Record<string, unknown>): AuthUser {
       ? provider
       : 'password') as AuthProvider,
     avatarUrl: row.avatar_url ? String(row.avatar_url) : null,
+    streak: presentAccountStreak(rowToStoredStreak(row), now),
   };
 }
 
@@ -514,8 +613,14 @@ async function commitRoomEloIfEnded(
   room: StoredRoom,
   now: number,
 ): Promise<StoredRoom> {
+  if (room.phase !== 'finished') {
+    return room;
+  }
+
+  // Enregistre l'activité quotidienne (flamme) pour tout joueur connecté (1v1 ou 2v2)
+  await recordRoomAccountStreaks(client, room, now);
+
   if (
-    room.phase !== 'finished' ||
     room.eloResult !== null ||
     !room.players.X ||
     !room.players.O
@@ -528,7 +633,7 @@ async function commitRoomEloIfEnded(
   const updated = applyEloOutcomeToRoom(room, profX, profO, now);
 
   if (!updated.rated) {
-    // Partie annulée : rien n'est enregistré au classement ni à l'historique
+    // Partie annulée ou 2v2 amical : rien n'est enregistré au classement ni à l'historique
     return updated.room;
   }
 
@@ -627,7 +732,9 @@ export default async (req: Request): Promise<Response> => {
       const selfKey = viewer ? `user:${viewer.id}` : null;
       const res = await db.pool.query(
         `SELECT e.profile_key, COALESCE(u.username, e.pseudo) AS pseudo,
-                e.rating, e.rd, e.volatility, e.games_played, e.wins, e.last_played_at
+                e.rating, e.rd, e.volatility, e.games_played, e.wins, e.last_played_at,
+                u.streak_current, u.streak_best, u.streak_last_date,
+                u.streak_total_days, u.streak_recent_dates
          FROM elo_profiles e
          LEFT JOIN users u ON e.profile_key = 'user:' || u.id
          WHERE e.profile_key LIKE 'user:%' AND e.games_played >= $1
@@ -639,6 +746,7 @@ export default async (req: Request): Promise<Response> => {
         (row, index) => {
           const profile = rowToEloProfile(row);
           const rd = inflateDeviation(profile, now);
+          const dailyStreak = presentAccountStreak(rowToStoredStreak(row), now).current;
           return {
             rank: index + 1,
             pseudo: String(row.pseudo),
@@ -649,6 +757,7 @@ export default async (req: Request): Promise<Response> => {
             wins: profile.wins,
             tier: getEloTier(profile.rating).label,
             isSelf: selfKey !== null && row.profile_key === selfKey,
+            dailyStreak,
           };
         },
       );
@@ -714,13 +823,15 @@ export default async (req: Request): Promise<Response> => {
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM auth_sessions WHERE expires_at < $1', [now]);
         const found = await client.query(
-          `SELECT id, username, created_at, auth_provider, avatar_url
+          `SELECT id, username, created_at, auth_provider, avatar_url,
+                  streak_current, streak_best, streak_last_date,
+                  streak_total_days, streak_recent_dates
            FROM users WHERE provider_uid = $1`,
           [providerUid],
         );
 
         if (found.rows.length > 0) {
-          const user = rowToAuthUser(found.rows[0]);
+          const user = rowToAuthUser(found.rows[0], now);
           if (identity.picture && identity.picture !== user.avatarUrl) {
             await client.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [
               identity.picture,
@@ -774,6 +885,7 @@ export default async (req: Request): Promise<Response> => {
           createdAt: now,
           provider: identity.provider,
           avatarUrl: identity.picture,
+          streak: presentAccountStreak(createEmptyStreakState(), now),
         };
         return { token, user, profile, isNew: true, mergedGuest: Boolean(merged) };
       });
@@ -898,6 +1010,7 @@ export default async (req: Request): Promise<Response> => {
           createdAt: now,
           provider: 'password',
           avatarUrl: null,
+          streak: presentAccountStreak(createEmptyStreakState(), now),
         };
 
         return {
@@ -938,7 +1051,9 @@ export default async (req: Request): Promise<Response> => {
       }
 
       const foundRes = await db.pool.query(
-        `SELECT id, username, password_hash, salt, created_at, auth_provider, avatar_url
+        `SELECT id, username, password_hash, salt, created_at, auth_provider, avatar_url,
+                streak_current, streak_best, streak_last_date,
+                streak_total_days, streak_recent_dates
          FROM users
          WHERE username_lower = $1`,
         [cleanName.toLowerCase()],
@@ -979,7 +1094,7 @@ export default async (req: Request): Promise<Response> => {
         );
       }
 
-      const user = rowToAuthUser(row);
+      const user = rowToAuthUser(row, now);
 
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM auth_sessions WHERE expires_at < $1', [now]);
@@ -1020,6 +1135,24 @@ export default async (req: Request): Promise<Response> => {
         await db.pool.query('DELETE FROM auth_sessions WHERE token = $1', [token]);
       }
       return jsonResponse({ ok: true });
+    }
+
+    // POST /api/game/streak/activity — valide la flamme quotidienne (comptes inscrits uniquement)
+    if (method === 'POST' && subPath === '/streak/activity') {
+      const user = await resolveAuthUser(req, poolQuery, now);
+      if (!user) {
+        return jsonResponse(
+          { ok: false, error: 'La flamme quotidienne est réservée aux comptes inscrits.' },
+          401,
+        );
+      }
+      const data = await withTx(async (client) =>
+        recordUserStreakActivity(client, user.id, now),
+      );
+      if (!data) {
+        return jsonResponse({ ok: false, error: 'Compte introuvable.' }, 404);
+      }
+      return jsonResponse({ ok: true, data });
     }
 
     // GET /api/game/profile?profileId=...&pseudo=...
@@ -1137,6 +1270,7 @@ export default async (req: Request): Promise<Response> => {
         provisional: isProvisional(shown.rd),
         percentile,
         rankedPlayers,
+        accountStreak: identity.user?.streak ?? null,
       };
 
       return jsonResponse({ ok: true, data: payload });
@@ -1149,6 +1283,7 @@ export default async (req: Request): Promise<Response> => {
         profileId?: string;
         pseudo?: string;
         timeControl?: unknown;
+        mode?: unknown;
       }>(req);
 
       if (!body?.playerId || !isTimeControl(body.timeControl)) {
@@ -1156,6 +1291,7 @@ export default async (req: Request): Promise<Response> => {
       }
 
       const timeControl = body.timeControl;
+      const mode: RoomMode = body.mode === '2v2' ? '2v2' : '1v1';
       const identity = await resolveIdentity(
         req,
         poolQuery,
@@ -1182,6 +1318,7 @@ export default async (req: Request): Promise<Response> => {
           profileKey,
           pseudo,
           timeControl,
+          mode,
           eloProfile,
           now,
         });
@@ -1202,7 +1339,9 @@ export default async (req: Request): Promise<Response> => {
     }
 
     // Room routes: /rooms/:code/<action>
-    const roomMatch = subPath.match(/^\/rooms\/([A-Za-z0-9]+)\/(peek|join|state|move|resign|rematch|leave)$/);
+    const roomMatch = subPath.match(
+      /^\/rooms\/([A-Za-z0-9]+)\/(peek|join|state|move|resign|rematch|leave|seat|emote)$/,
+    );
     if (roomMatch) {
       const code = normalizeRoomCode(roomMatch[1]);
       const action = roomMatch[2];
@@ -1221,7 +1360,7 @@ export default async (req: Request): Promise<Response> => {
           return jsonResponse({ ok: false, error: 'Salon introuvable ou expiré.' }, 404);
         }
         const room = parseStoredRoom(res.rows[0].state_json);
-        return jsonResponse({ ok: true, data: { info: toRoomPeekInfo(room) } });
+        return jsonResponse({ ok: true, data: { info: toRoomPeekInfo(room, now) } });
       }
 
       // GET /api/game/rooms/:code/state?playerId=...&version=...
@@ -1567,6 +1706,102 @@ export default async (req: Request): Promise<Response> => {
         });
 
         return jsonResponse({ ok: true });
+      }
+
+      // POST /api/game/rooms/:code/seat — changement de place en salle d'attente 2v2
+      if (method === 'POST' && action === 'seat') {
+        const body = await readJsonBody<{ playerId?: string; targetSeat?: unknown }>(req);
+        const targetSeat = body?.targetSeat;
+        const validSeat =
+          targetSeat === 'A' ||
+          targetSeat === 'B' ||
+          targetSeat === 'C' ||
+          targetSeat === 'D';
+        if (!body?.playerId || !validSeat) {
+          return jsonResponse({ ok: false, error: 'Place invalide.' }, 400);
+        }
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM rooms WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Salon introuvable.' };
+          }
+          const room = parseStoredRoom(locked.rows[0].state_json);
+          const version = Number(locked.rows[0].version);
+          const switched = switchSeatStoredRoom(room, {
+            playerId: body.playerId!,
+            targetSeat: targetSeat as TeamSeat,
+            now,
+          });
+          if (!switched.ok) {
+            return { ok: false as const, status: 400, error: switched.error };
+          }
+          const nextVersion = version + 1;
+          await saveRoomRow(client, switched.room, nextVersion, now);
+          return {
+            ok: true as const,
+            snapshot: toRoomSnapshot(switched.room, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: { snapshot: result.snapshot, version: result.version },
+        });
+      }
+
+      // POST /api/game/rooms/:code/emote — tampons d'encre & emotes en match
+      if (method === 'POST' && action === 'emote') {
+        const body = await readJsonBody<{ playerId?: string; emote?: unknown }>(req);
+        if (
+          !body?.playerId ||
+          typeof body.emote !== 'string' ||
+          !(EMOTE_IDS as readonly string[]).includes(body.emote)
+        ) {
+          return jsonResponse({ ok: false, error: 'Réaction invalide.' }, 400);
+        }
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM rooms WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Salon introuvable.' };
+          }
+          const room = parseStoredRoom(locked.rows[0].state_json);
+          const version = Number(locked.rows[0].version);
+          const sent = sendEmoteStoredRoom(room, {
+            playerId: body.playerId!,
+            emote: body.emote as EmoteId,
+            now,
+          });
+          if (!sent.ok) {
+            return { ok: false as const, status: 429, error: sent.error };
+          }
+          const nextVersion = version + 1;
+          await saveRoomRow(client, sent.room, nextVersion, now);
+          return {
+            ok: true as const,
+            snapshot: toRoomSnapshot(sent.room, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: { snapshot: result.snapshot, version: result.version },
+        });
       }
     }
 

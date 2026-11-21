@@ -2,12 +2,21 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getEloTier, type EloMatchDelta } from '@shared/elo';
 import type { Player } from '@shared/gameEngine';
-import type { EndReason, RoomPlayer } from '@shared/protocol';
-import { Check, Eye, Home, RotateCcw, Share2, TrendingDown, TrendingUp } from 'lucide-react';
+import type { EndReason, RoomMode, RoomPlayer, TeamSeat } from '@shared/protocol';
+import {
+  Check,
+  Eye,
+  Home,
+  RotateCcw,
+  Share2,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 import { CHIP_SPRING } from '../utils/motion';
 
-interface GameEndBannerProps {
+export interface GameEndBannerProps {
   players: {
     X: RoomPlayer | null;
     O: RoomPlayer | null;
@@ -29,6 +38,11 @@ interface GameEndBannerProps {
   /** Permet au parent de masquer/afficher le bandeau (mode inspection du plateau). */
   hidden?: boolean;
   onHiddenChange?: (hidden: boolean) => void;
+  mode?: RoomMode;
+  seats?: Record<TeamSeat, RoomPlayer | null> | null;
+  rematchVotes?: string[];
+  isSpectator?: boolean;
+  onOpenSouvenirCard?: () => void;
 }
 
 function formatDelta(delta: number): string {
@@ -135,6 +149,11 @@ export function GameEndBanner({
   skipRatingAnimation = false,
   hidden: controlledHidden,
   onHiddenChange,
+  mode,
+  seats,
+  rematchVotes,
+  isSpectator = false,
+  onOpenSouvenirCard,
 }: GameEndBannerProps) {
   const [internalHidden, setInternalHidden] = useState(false);
   const [shared, setShared] = useState(false);
@@ -154,31 +173,84 @@ export function GameEndBanner({
     return () => window.clearTimeout(timer);
   }, [shared]);
 
+  const is2v2 = mode === '2v2' && Boolean(seats);
+  const spectator = Boolean(isSpectator);
   const aborted = endReason === 'aborted';
-  const isWin = !aborted && localSymbol !== null && matchWinner === localSymbol;
+  const isWin = !aborted && !spectator && localSymbol !== null && matchWinner === localSymbol;
   const isLoss =
-    !aborted && localSymbol !== null && matchWinner !== null && matchWinner !== localSymbol;
+    !aborted &&
+    !spectator &&
+    localSymbol !== null &&
+    matchWinner !== null &&
+    matchWinner !== localSymbol;
   const winnerPlayer = matchWinner ? players[matchWinner] : null;
+  const rematchCount = rematchVotes?.length ?? 0;
 
   let title = 'Match nul';
   let subtitle = 'Plus aucun coup possible sur le plateau.';
 
   if (aborted) {
     title = 'Partie annulée';
-    subtitle = 'Moins de deux coups joués : elle ne compte pas au classement.';
+    subtitle = is2v2
+      ? 'Moins de deux coups joués : la partie a été annulée.'
+      : 'Moins de deux coups joués : elle ne compte pas au classement.';
+  } else if (is2v2 && matchWinner) {
+    title = isWin
+      ? 'Victoire d’équipe !'
+      : isLoss
+        ? 'Défaite d’équipe'
+        : matchWinner === 'X'
+          ? 'Équipe X gagne !'
+          : 'Équipe O gagne !';
+    const reasons: Partial<Record<EndReason, string>> = spectator
+      ? {
+          timeout: 'Fin au temps.',
+          resign: 'Fin par abandon.',
+          abandoned: 'Fin suite à un départ.',
+          alignment: 'Trois zones alignées sur le grand plateau.',
+        }
+      : {
+          timeout: isWin ? 'L’équipe adverse a dépassé son temps.' : 'Temps écoulé.',
+          resign: isWin ? 'L’équipe adverse a abandonné.' : 'Partie abandonnée.',
+          abandoned: isWin ? 'Un adversaire a quitté la partie.' : 'Partie quittée.',
+          alignment: 'Trois zones alignées sur le grand plateau.',
+        };
+    subtitle = reasons[endReason ?? 'alignment'] ?? subtitle;
   } else if (winnerPlayer) {
     title = isWin ? 'Victoire !' : isLoss ? 'Défaite' : `${winnerPlayer.pseudo} gagne`;
-    const reasons: Partial<Record<EndReason, string>> = {
-      timeout: isWin ? 'Ton adversaire a dépassé son temps.' : 'Temps écoulé.',
-      resign: isWin ? 'Ton adversaire a abandonné.' : 'Partie abandonnée.',
-      abandoned: isWin ? 'Ton adversaire a quitté la partie.' : 'Partie quittée.',
-      alignment: 'Trois zones alignées sur le grand plateau.',
-    };
+    const reasons: Partial<Record<EndReason, string>> = spectator
+      ? {
+          timeout: 'Fin au temps.',
+          resign: 'Fin par abandon.',
+          abandoned: 'Fin suite à un départ.',
+          alignment: 'Trois zones alignées sur le grand plateau.',
+        }
+      : {
+          timeout: isWin ? 'Ton adversaire a dépassé son temps.' : 'Temps écoulé.',
+          resign: isWin ? 'Ton adversaire a abandonné.' : 'Partie abandonnée.',
+          abandoned: isWin ? 'Ton adversaire a quitté la partie.' : 'Partie quittée.',
+          alignment: 'Trois zones alignées sur le grand plateau.',
+        };
     subtitle = reasons[endReason ?? 'alignment'] ?? subtitle;
   }
 
-  const myResult = localSymbol && eloResult ? eloResult[localSymbol] : null;
-  const oppSymbol: Player | null = localSymbol ? (localSymbol === 'X' ? 'O' : 'X') : null;
+  const displaySubtitle = spectator
+    ? subtitle
+    : is2v2
+      ? isOnline && selfVotedRematch && rematchCount < 4
+        ? `En attente des autres joueurs (${rematchCount}/4 prêts)…`
+        : isOnline && !selfVotedRematch && (opponentVotedRematch || rematchCount > 0)
+          ? `Revanche proposée (${rematchCount}/4 prêts).`
+          : subtitle
+      : isOnline && opponentVotedRematch && !selfVotedRematch
+        ? 'Ton adversaire propose une revanche.'
+        : isOnline && selfVotedRematch && !opponentVotedRematch
+          ? 'En attente de la réponse de ton adversaire…'
+          : subtitle;
+
+  const myResult = !spectator && localSymbol && eloResult ? eloResult[localSymbol] : null;
+  const oppSymbol: Player | null =
+    !spectator && localSymbol ? (localSymbol === 'X' ? 'O' : 'X') : null;
   const oppResult = oppSymbol && eloResult ? eloResult[oppSymbol] : null;
 
   const tierBefore = myResult ? getEloTier(myResult.before) : null;
@@ -197,12 +269,44 @@ export function GameEndBanner({
         ? 'var(--o-color)'
         : 'var(--border-strong)';
 
+  const teamXLabel = seats
+    ? [seats.A?.pseudo, seats.B?.pseudo].filter(Boolean).join(' & ') || 'A & B'
+    : 'A & B';
+  const teamOLabel = seats
+    ? [seats.C?.pseudo, seats.D?.pseudo].filter(Boolean).join(' & ') || 'C & D'
+    : 'C & D';
+
+  const rematchLabel = is2v2
+    ? isOnline && selfVotedRematch
+      ? rematchCount > 0
+        ? `En attente (${rematchCount}/4)…`
+        : 'En attente…'
+      : isOnline && rematchCount > 0
+        ? `Revanche (${rematchCount}/4)`
+        : 'Revanche'
+    : isOnline && selfVotedRematch
+      ? 'En attente…'
+      : isOnline && opponentVotedRematch
+        ? 'Accepter la revanche'
+        : 'Revanche';
+
+  const shouldPulseRematch =
+    !selfVotedRematch && (opponentVotedRematch || (is2v2 && rematchCount > 0) || isLoss);
+
+  const showSouvenirBtn = Boolean(onOpenSouvenirCard) && !aborted;
+
   const handleShare = async () => {
     const url = window.location.origin;
     const delta = myResult && myResult.rated !== false ? ` (${formatDelta(myResult.delta)} Elo)` : '';
-    const text = isWin
-      ? `Je viens de gagner au Super Morpion${delta}. Viens me défier :`
-      : `Je joue au Super Morpion, viens me défier :`;
+    const text = spectator
+      ? 'Je viens de suivre une belle partie au Super Morpion, viens jouer :'
+      : is2v2
+        ? isWin
+          ? 'Victoire en 2v2 au Super Morpion ! Viens nous défier :'
+          : 'Partie en 2v2 au Super Morpion, viens jouer :'
+        : isWin
+          ? `Je viens de gagner au Super Morpion${delta}. Viens me défier :`
+          : 'Je joue au Super Morpion, viens me défier :';
     try {
       if (navigator.share) {
         await navigator.share({ title: 'Super Morpion', text, url });
@@ -254,17 +358,16 @@ export function GameEndBanner({
               transition={{ delay: 0.35, duration: 0.25 }}
               className="text-lg sm:text-xl font-extrabold leading-tight tracking-tight"
               style={{
-                color: isWin ? accent : isLoss ? 'var(--text-primary)' : 'var(--text-primary)',
+                color:
+                  isWin || (spectator && !aborted && matchWinner !== null)
+                    ? accent
+                    : 'var(--text-primary)',
               }}
             >
               {title}
             </motion.p>
             <p className="text-xs mt-0.5 leading-snug" style={{ color: 'var(--text-secondary)' }}>
-              {isOnline && opponentVotedRematch && !selfVotedRematch
-                ? 'Ton adversaire propose une revanche.'
-                : isOnline && selfVotedRematch && !opponentVotedRematch
-                  ? 'En attente de la réponse de ton adversaire…'
-                  : subtitle}
+              {displaySubtitle}
             </p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -298,6 +401,42 @@ export function GameEndBanner({
             </button>
           </div>
         </div>
+
+        {/* Résumé compact des équipes en mode 2v2 */}
+        {is2v2 && !aborted && (
+          <div
+            className="rounded-[10px] px-2.5 py-2 flex flex-col gap-1"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-cell)',
+            }}
+          >
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-snug">
+              <span className="inline-flex items-center gap-1 min-w-0">
+                <span className="font-bold shrink-0" style={{ color: 'var(--x-color)' }}>
+                  Équipe X :
+                </span>
+                <span className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                  {teamXLabel}
+                </span>
+              </span>
+              <span aria-hidden="true" style={{ color: 'var(--text-muted)' }}>
+                ·
+              </span>
+              <span className="inline-flex items-center gap-1 min-w-0">
+                <span className="font-bold shrink-0" style={{ color: 'var(--o-color)' }}>
+                  Équipe O :
+                </span>
+                <span className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                  {teamOLabel}
+                </span>
+              </span>
+            </div>
+            <span className="text-[10.5px] font-medium" style={{ color: 'var(--text-muted)' }}>
+              Match amical 2v2 · non classé
+            </span>
+          </div>
+        )}
 
         <AnimatePresence>
           {tierChange && tierAfter && (
@@ -355,50 +494,59 @@ export function GameEndBanner({
           </div>
         )}
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={onLeave}
-            className="tactile-btn inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-xs font-semibold"
+            className={`tactile-btn ${spectator && !showSouvenirBtn ? 'flex-1' : 'flex-1 sm:flex-initial'} inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-xs font-semibold`}
             style={{
               backgroundColor: 'var(--bg-surface)',
               color: 'var(--text-primary)',
               border: '1px solid var(--border-main)',
             }}
           >
-            <Home className="w-3.5 h-3.5" />
+            <Home className="w-3.5 h-3.5 shrink-0" />
             <span>Accueil</span>
           </button>
-          <motion.button
-            type="button"
-            onClick={onRematch}
-            disabled={isOnline && selfVotedRematch}
-            // La revanche bat doucement quand elle est proposée, ou après une défaite
-            animate={
-              (opponentVotedRematch || isLoss) && !selfVotedRematch
-                ? { scale: [1, 1.04, 1] }
-                : { scale: 1 }
-            }
-            transition={
-              (opponentVotedRematch || isLoss) && !selfVotedRematch
-                ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' }
-                : { duration: 0.2 }
-            }
-            className="tactile-btn flex-1 inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2 text-sm font-semibold disabled:opacity-60"
-            style={{
-              backgroundColor: 'var(--btn-primary-bg)',
-              color: 'var(--btn-primary-text)',
-            }}
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>
-              {isOnline && selfVotedRematch
-                ? 'En attente…'
-                : isOnline && opponentVotedRematch
-                  ? 'Accepter la revanche'
-                  : 'Revanche'}
-            </span>
-          </motion.button>
+
+          {showSouvenirBtn && (
+            <button
+              type="button"
+              onClick={onOpenSouvenirCard}
+              className={`tactile-btn ${spectator ? 'flex-1' : 'flex-1 sm:flex-initial'} inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-xs font-semibold`}
+              style={{
+                backgroundColor: 'var(--accent-active-bg)',
+                color: 'var(--accent-active-text)',
+                border: '1px solid var(--accent-active)',
+              }}
+            >
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span>Carte souvenir</span>
+            </button>
+          )}
+
+          {!spectator && (
+            <motion.button
+              type="button"
+              onClick={onRematch}
+              disabled={isOnline && selfVotedRematch}
+              // La revanche bat doucement quand elle est proposée, ou après une défaite
+              animate={shouldPulseRematch ? { scale: [1, 1.04, 1] } : { scale: 1 }}
+              transition={
+                shouldPulseRematch
+                  ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' }
+                  : { duration: 0.2 }
+              }
+              className="tactile-btn flex-1 min-w-[132px] inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2 text-sm font-semibold disabled:opacity-60"
+              style={{
+                backgroundColor: 'var(--btn-primary-bg)',
+                color: 'var(--btn-primary-text)',
+              }}
+            >
+              <RotateCcw className="w-4 h-4 shrink-0" />
+              <span>{rematchLabel}</span>
+            </motion.button>
+          )}
         </div>
       </motion.div>
     </>

@@ -8,7 +8,10 @@ import {
   joinStoredRoom,
   leaveStoredRoom,
   resignStoredRoom,
+  sendEmoteStoredRoom,
   settleTimeoutsAndAbandonment,
+  switchSeatStoredRoom,
+  toRoomPeekInfo,
   toRoomSnapshot,
   voteRematchStoredRoom,
   type StoredRoom,
@@ -550,5 +553,155 @@ describe('limite de 25 s par coup', () => {
     const next = play(legacy, 'p1', 4, 4, start + 10 * LIMIT);
     expect(next.turnStartedAt).toBe(start + 10 * LIMIT);
     expect(next.moveTimeouts).toEqual({ X: 0, O: 0 });
+  });
+});
+
+describe('mode 2v2 (AB vs CD, ordre A → C → B → D), spectateurs et emotes', () => {
+  it('enchaîne les tours exactement dans l’ordre A → C → B → D → A et gère le changement de siège', () => {
+    const t0 = 9_000_000;
+    const elo = createDefaultEloProfile();
+
+    const r0 = createStoredRoom({
+      code: 'DUO2V2',
+      playerId: 'pA',
+      profileKey: 'kA',
+      pseudo: 'Alice',
+      timeControl: 'unlimited',
+      mode: '2v2',
+      eloProfile: elo,
+      now: t0,
+    });
+    expect(r0.mode).toBe('2v2');
+    expect(r0.seats?.A?.pseudo).toBe('Alice');
+    expect(toRoomPeekInfo(r0, t0)).toMatchObject({ mode: '2v2', playerCount: 1, maxPlayers: 4, isFull: false });
+
+    // pC rejoint -> remplit C (équipe O) pour équilibrer
+    const j1 = joinStoredRoom(r0, { playerId: 'pC', profileKey: 'kC', pseudo: 'Chloé', eloProfile: elo, now: t0 + 100 });
+    expect(j1.ok && j1.role === 'player').toBe(true);
+    if (!j1.ok) return;
+    expect(j1.room.seats?.C?.id).toBe('pC');
+
+    // Chloé change de siège C -> D en salle d'attente
+    const sw = switchSeatStoredRoom(j1.room, { playerId: 'pC', targetSeat: 'D', now: t0 + 150 });
+    expect(sw.ok).toBe(true);
+    if (!sw.ok) return;
+    expect(sw.room.seats?.D?.id).toBe('pC');
+    expect(sw.room.seats?.C).toBeNull();
+    // Chloé revient en C
+    const sw2 = switchSeatStoredRoom(sw.room, { playerId: 'pC', targetSeat: 'C', now: t0 + 200 });
+    if (!sw2.ok) throw new Error('switch failed');
+
+    // pB rejoint -> B, puis pD -> D (démarre la partie)
+    const j2 = joinStoredRoom(sw2.room, { playerId: 'pB', profileKey: 'kB', pseudo: 'Bob', eloProfile: elo, now: t0 + 300 });
+    if (!j2.ok) throw new Error('j2 failed');
+    expect(j2.room.seats?.B?.id).toBe('pB');
+    expect(j2.room.phase).toBe('waiting');
+
+    const j3 = joinStoredRoom(j2.room, { playerId: 'pD', profileKey: 'kD', pseudo: 'David', eloProfile: elo, now: t0 + 400 });
+    if (!j3.ok) throw new Error('j3 failed');
+    expect(j3.room.seats?.D?.id).toBe('pD');
+    expect(j3.room.phase).toBe('playing');
+
+    let room = j3.room;
+    expect(toRoomSnapshot(room, t0 + 500).activeSeat).toBe('A');
+    expect(toRoomSnapshot(room, t0 + 500).eloStakes).toBeNull();
+
+    // B (coéquipier X) ne peut pas jouer à la place de A
+    const wrongMate = applyMoveToStoredRoom(room, { playerId: 'pB', move: { boardIndex: 4, cellIndex: 4 }, now: t0 + 4000 });
+    expect(wrongMate.ok).toBe(false);
+    if (!wrongMate.ok) expect(wrongMate.error).toContain('coéquipier');
+
+    // Tour 1 : A joue
+    const m1 = applyMoveToStoredRoom(room, { playerId: 'pA', move: { boardIndex: 4, cellIndex: 0 }, now: t0 + 4100 });
+    expect(m1.ok).toBe(true);
+    if (!m1.ok) return;
+    room = m1.room;
+    expect(room.gameState.moveHistory[0].seat).toBe('A');
+    expect(toRoomSnapshot(room, t0 + 4200).activeSeat).toBe('C');
+
+    // Tour 2 : D (coéquipier O) bloqué, C joue
+    const wrongD = applyMoveToStoredRoom(room, { playerId: 'pD', move: { boardIndex: 0, cellIndex: 4 }, now: t0 + 4300 });
+    expect(wrongD.ok).toBe(false);
+    const m2 = applyMoveToStoredRoom(room, { playerId: 'pC', move: { boardIndex: 0, cellIndex: 4 }, now: t0 + 4400 });
+    if (!m2.ok) throw new Error('m2 failed');
+    room = m2.room;
+    expect(room.gameState.moveHistory[1].seat).toBe('C');
+    expect(toRoomSnapshot(room, t0 + 4500).activeSeat).toBe('B');
+
+    // Tour 3 : B joue
+    const m3 = applyMoveToStoredRoom(room, { playerId: 'pB', move: { boardIndex: 4, cellIndex: 8 }, now: t0 + 4600 });
+    if (!m3.ok) throw new Error('m3 failed');
+    room = m3.room;
+    expect(room.gameState.moveHistory[2].seat).toBe('B');
+    expect(toRoomSnapshot(room, t0 + 4700).activeSeat).toBe('D');
+
+    // Tour 4 : D joue -> retour à A
+    const m4 = applyMoveToStoredRoom(room, { playerId: 'pD', move: { boardIndex: 8, cellIndex: 4 }, now: t0 + 4800 });
+    if (!m4.ok) throw new Error('m4 failed');
+    room = m4.room;
+    expect(room.gameState.moveHistory[3].seat).toBe('D');
+    expect(toRoomSnapshot(room, t0 + 4900).activeSeat).toBe('A');
+
+    // Un 5e arrivant passe spectateur
+    const spec = joinStoredRoom(room, { playerId: 'pSpec', profileKey: 'kSpec', pseudo: 'Zoé', eloProfile: elo, now: t0 + 5000 });
+    expect(spec.ok && spec.role === 'spectator').toBe(true);
+    if (!spec.ok) return;
+    expect(toRoomSnapshot(spec.room, t0 + 5100).spectatorCount).toBe(1);
+
+    // Le 2v2 reste amical (non classé) et la revanche inverse les équipes après 4 votes
+    const res = resignStoredRoom(spec.room, { playerId: 'pD', now: t0 + 5500 });
+    if (!res.ok) throw new Error('resign failed');
+    expect(res.endedWinner).toBe('X');
+    expect(res.room.seats?.A?.score).toBe(1);
+    expect(res.room.seats?.B?.score).toBe(1);
+    const eloCheck = applyEloOutcomeToRoom(res.room, elo, elo, t0 + 5500);
+    expect(eloCheck.rated).toBe(false);
+
+    let rRem = res.room;
+    for (const [idx, pid] of (['pA', 'pB', 'pC', 'pD'] as const).entries()) {
+      const v = voteRematchStoredRoom(rRem, { playerId: pid, now: t0 + 6000 + idx * 100 });
+      if (!v.ok) throw new Error('rematch vote failed');
+      expect(v.restarted).toBe(idx === 3);
+      rRem = v.room;
+    }
+    expect(rRem.seats?.A?.id).toBe('pC');
+    expect(rRem.seats?.B?.id).toBe('pD');
+    expect(rRem.seats?.C?.id).toBe('pA');
+    expect(rRem.seats?.D?.id).toBe('pB');
+  });
+
+  it('passe une 3e personne en mode spectateur sur un 1v1 et gère les emotes avec anti-spam', () => {
+    const t0 = 10_000_000;
+    const elo = createDefaultEloProfile();
+    const r0 = createStoredRoom({ code: 'SPEC01', playerId: 'p1', profileKey: 'k1', pseudo: 'Léo', timeControl: 'unlimited', eloProfile: elo, now: t0 });
+    const j1 = joinStoredRoom(r0, { playerId: 'p2', profileKey: 'k2', pseudo: 'Mia', eloProfile: elo, now: t0 + 100 });
+    if (!j1.ok) throw new Error('j1 failed');
+
+    // 3e personne rejoint via le code -> spectateur
+    const j3 = joinStoredRoom(j1.room, { playerId: 'p3', profileKey: 'k3', pseudo: 'Noé', eloProfile: elo, now: t0 + 200 });
+    expect(j3.ok && j3.role === 'spectator').toBe(true);
+    if (!j3.ok) return;
+    expect(toRoomSnapshot(j3.room, t0 + 300).spectatorCount).toBe(1);
+
+    // Spectateur ne peut pas jouer ni envoyer d'emote
+    const badMove = applyMoveToStoredRoom(j3.room, { playerId: 'p3', move: { boardIndex: 0, cellIndex: 0 }, now: t0 + 400 });
+    expect(badMove.ok).toBe(false);
+    const badEmote = sendEmoteStoredRoom(j3.room, { playerId: 'p3', emote: 'fire', now: t0 + 400 });
+    expect(badEmote.ok).toBe(false);
+
+    // Joueur envoie un emote -> visible puis bloqué pendant le cooldown
+    const em1 = sendEmoteStoredRoom(j3.room, { playerId: 'p1', emote: 'fire', now: t0 + 500 });
+    expect(em1.ok).toBe(true);
+    if (!em1.ok) return;
+    expect(toRoomSnapshot(em1.room, t0 + 600).lastEmote).toMatchObject({ emote: 'fire', senderSymbol: 'X' });
+
+    const spam = sendEmoteStoredRoom(em1.room, { playerId: 'p1', emote: 'gg', now: t0 + 900 });
+    expect(spam.ok).toBe(false);
+
+    // Départ du spectateur : ne termine pas la partie
+    const left = leaveStoredRoom(em1.room, { playerId: 'p3', now: t0 + 1000 });
+    expect(left.deleted).toBe(false);
+    expect(left.room.phase).toBe('playing');
+    expect(toRoomSnapshot(left.room, t0 + 1100).spectatorCount).toBe(0);
   });
 });

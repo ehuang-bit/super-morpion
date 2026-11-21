@@ -249,31 +249,18 @@
   transition: none !important;
 }
 
-.theme-revealing::view-transition-old(root),
-.theme-revealing::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-
-.theme-revealing::view-transition-old(root) {
-  z-index: 1;
-}
-
-.theme-revealing::view-transition-new(root) {
-  z-index: 9999;
-}
-
-.theme-fading,
-.theme-fading *,
-.theme-fading *::before,
-.theme-fading *::after {
+/* Fondu soyeux et synchronisé des couleurs au changement de palette */
+html.theme-morphing,
+html.theme-morphing *,
+html.theme-morphing *::before,
+html.theme-morphing *::after {
   transition:
-    background-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    fill 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    stroke 360ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+    background-color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    fill 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
@@ -406,10 +393,20 @@
 }
 
 .tactile-btn:focus-visible,
-.tactile-input:focus-visible,
 .board-cell:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
+}
+
+.tactile-input {
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.tactile-input:focus,
+.tactile-input:focus-visible {
+  outline: none;
+  border-color: var(--accent-active) !important;
+  box-shadow: 0 0 0 3px var(--accent-active-bg);
 }
 
 .board-cell-playable {

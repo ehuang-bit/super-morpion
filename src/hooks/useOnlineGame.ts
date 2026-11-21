@@ -8,14 +8,19 @@ import { applyMove, type Move, type Player } from '@shared/gameEngine';
 import {
   MOVE_TIMEOUT_GRACE_MS,
   MOVE_TIME_LIMIT_MS,
+  TEAM_SEAT_SYMBOL,
+  type EmoteId,
   type LeaderboardPayload,
   type LobbyStats,
   type PlayerStatsPayload,
+  type RoomMode,
   type RoomPeekInfo,
   type RoomSnapshot,
+  type TeamSeat,
   type TimeControl,
 } from '@shared/protocol';
 import { DEMO_MODE } from '../dev/demoMode';
+import { getBoardTension } from '../utils/boardTension';
 import { haptics } from '../utils/haptics';
 import { soundEngine } from '../utils/soundEngine';
 
@@ -41,7 +46,16 @@ async function apiRequest<T>(
   if (import.meta.env.DEV && DEMO_MODE) {
     // Développement uniquement : faux serveur en mémoire (voir src/dev)
     const { demoApiRequest } = await import('../dev/demoBackend');
-    return (await demoApiRequest(path, options)) as ApiResponse<T>;
+    const authHeaders: Record<string, string> = authToken
+      ? { Authorization: `Bearer ${authToken}` }
+      : {};
+    return (await demoApiRequest(path, {
+      ...options,
+      headers: {
+        ...authHeaders,
+        ...(options.headers ?? {}),
+      },
+    })) as ApiResponse<T>;
   }
   try {
     const authHeaders: Record<string, string> = authToken
@@ -62,15 +76,41 @@ async function apiRequest<T>(
   }
 }
 
-function getLocalSymbol(snap: RoomSnapshot | null, playerId: string): Player | null {
+export function getLocalSeat(
+  snap: RoomSnapshot | null,
+  playerId: string,
+): TeamSeat | null {
+  if (!snap || snap.mode !== '2v2' || !snap.seats) return null;
+  for (const seat of ['A', 'B', 'C', 'D'] as const) {
+    if (snap.seats[seat]?.id === playerId) return seat;
+  }
+  return null;
+}
+
+export function getLocalSymbol(
+  snap: RoomSnapshot | null,
+  playerId: string,
+): Player | null {
   if (!snap) return null;
+  const seat = getLocalSeat(snap, playerId);
+  if (seat) return TEAM_SEAT_SYMBOL[seat];
   if (snap.players.X?.id === playerId) return 'X';
   if (snap.players.O?.id === playerId) return 'O';
   return null;
 }
 
+function isLocalTurn(snap: RoomSnapshot, playerId: string): boolean {
+  if (snap.phase !== 'playing') return false;
+  if (snap.mode === '2v2') {
+    const seat = getLocalSeat(snap, playerId);
+    return seat !== null && snap.activeSeat === seat;
+  }
+  const local = getLocalSymbol(snap, playerId);
+  return local !== null && snap.gameState.currentPlayer === local;
+}
+
 /**
- * Rythme de synchronisation : rapide quand on attend le coup adverse,
+ * Rythme de synchronisation : rapide quand on attend le coup adverse (ou en spectateur),
  * plus lent quand c'est à nous (on ne fait qu'entretenir la présence),
  * très lent onglet masqué (juste assez pour ne pas être compté absent).
  */
@@ -81,10 +121,9 @@ function nextPollDelay(
 ): number {
   if (typeof document !== 'undefined' && document.hidden) return 4000;
   if (!snap) return 1000;
-  if (snap.phase === 'waiting') return 1100;
+  if (snap.phase === 'waiting') return 950;
   if (snap.phase === 'finished') return 1400;
-  const local = getLocalSymbol(snap, playerId);
-  const base = local && snap.gameState.currentPlayer === local ? 1300 : 420;
+  const base = isLocalTurn(snap, playerId) ? 1300 : 420;
 
   // À l'approche de la limite par coup, on interroge le serveur juste après
   // l'échéance pour afficher sans attendre le coup joué d'office.
@@ -201,12 +240,18 @@ export function useOnlineGame(
         prev.code === next.code &&
         prev.gameNumber === next.gameNumber
       ) {
-        const localSymbol =
-          next.players.X?.id === playerId
-            ? 'X'
-            : next.players.O?.id === playerId
-              ? 'O'
-              : null;
+        const localSymbol = getLocalSymbol(next, playerId);
+        const localSeat = getLocalSeat(next, playerId);
+        const tension = getBoardTension(next.gameState);
+
+        // Emote reçu d'un autre joueur
+        if (
+          next.lastEmote &&
+          next.lastEmote.id !== prev.lastEmote?.id &&
+          next.lastEmote.senderId !== playerId
+        ) {
+          soundEngine.playEmote(next.lastEmote.emote);
+        }
 
         if (prev.phase === 'playing' && next.phase === 'finished') {
           // Le dernier coup garde son propre son
@@ -215,7 +260,7 @@ export function useOnlineGame(
               ? next.gameState.moveHistory[next.gameState.moveHistory.length - 1]
               : null;
           if (finalRecord?.capturedBoard) {
-            soundEngine.playCapture(finalRecord.player);
+            soundEngine.playCapture(finalRecord.player, true);
           }
 
           // Le son de fin accompagne l'arrivée de l'encre (voir MatchOutcome)
@@ -241,10 +286,10 @@ export function useOnlineGame(
               soundEngine.playAutoMove();
               haptics.freeMove();
             } else if (lastRecord.capturedBoard) {
-              soundEngine.playCapture(lastRecord.player);
+              soundEngine.playCapture(lastRecord.player, tension === 'match-point');
               haptics.capture();
             } else {
-              soundEngine.playMove(lastRecord.player);
+              soundEngine.playMove(lastRecord.player, tension);
               if (lastRecord.triggeredFreeMove) {
                 haptics.freeMove();
               } else if (lastRecord.player === localSymbol) {
@@ -255,6 +300,16 @@ export function useOnlineGame(
             }
             if (lastRecord.triggeredFreeMove && next.phase === 'playing') {
               soundEngine.playFreeMove();
+            }
+            // En 2v2, petit double-toc quand le relais arrive sur notre siège
+            if (
+              next.mode === '2v2' &&
+              next.phase === 'playing' &&
+              localSeat !== null &&
+              next.activeSeat === localSeat &&
+              prev.activeSeat !== localSeat
+            ) {
+              window.setTimeout(() => soundEngine.playTurnRelay(), 180);
             }
           }
         }
@@ -442,6 +497,7 @@ export function useOnlineGame(
     async (params: {
       pseudo: string;
       timeControl: TimeControl;
+      mode?: RoomMode;
     }): Promise<RoomSnapshot | null> => {
       setIsBusy(true);
       setError(null);
@@ -456,6 +512,7 @@ export function useOnlineGame(
             profileId,
             pseudo: params.pseudo,
             timeControl: params.timeControl,
+            mode: params.mode ?? '1v1',
           }),
         },
         authTokenRef.current,
@@ -534,10 +591,12 @@ export function useOnlineGame(
       if (!current || moveInFlightRef.current) return;
 
       const localSymbol = getLocalSymbol(current, playerId);
+      const localSeat = getLocalSeat(current, playerId);
       if (
         !localSymbol ||
         current.phase !== 'playing' ||
-        current.gameState.currentPlayer !== localSymbol
+        current.gameState.currentPlayer !== localSymbol ||
+        (current.mode === '2v2' && current.activeSeat !== localSeat)
       ) {
         return;
       }
@@ -565,26 +624,47 @@ export function useOnlineGame(
         const elapsed = Math.max(0, serverNowEstimate - current.turnStartedAt);
         clocks = { ...clocks, [localSymbol]: Math.max(0, clocks[localSymbol] - elapsed) };
       }
+
+      const nextState = localSeat
+        ? {
+            ...local.state,
+            moveHistory: local.state.moveHistory.map((r, i) =>
+              i === local.state.moveHistory.length - 1 ? { ...r, seat: localSeat } : r,
+            ),
+          }
+        : local.state;
+
+      const nextOrder =
+        current.mode === '2v2'
+          ? (nextState.startingPlayer === 'X'
+              ? (['A', 'C', 'B', 'D'] as const)
+              : (['C', 'A', 'D', 'B'] as const))
+          : null;
       const optimistic: RoomSnapshot = {
         ...current,
-        gameState: local.state,
+        gameState: nextState,
+        activeSeat:
+          nextOrder && nextState.status === 'playing'
+            ? nextOrder[nextState.moveHistory.length % 4]
+            : null,
         clocks,
         turnStartedAt: serverNowEstimate,
       };
 
-      const lastRecord = local.state.moveHistory[local.state.moveHistory.length - 1];
+      const tension = getBoardTension(nextState);
+      const lastRecord = nextState.moveHistory[nextState.moveHistory.length - 1];
       if (lastRecord?.capturedBoard) {
-        soundEngine.playCapture(localSymbol);
+        soundEngine.playCapture(localSymbol, tension === 'match-point');
         haptics.capture();
       } else {
-        soundEngine.playMove(localSymbol);
+        soundEngine.playMove(localSymbol, tension);
         if (lastRecord?.triggeredFreeMove) {
           haptics.freeMove();
         } else {
           haptics.move();
         }
       }
-      if (lastRecord?.triggeredFreeMove && local.state.status === 'playing') {
+      if (lastRecord?.triggeredFreeMove && nextState.status === 'playing') {
         soundEngine.playFreeMove();
       }
 
@@ -612,6 +692,49 @@ export function useOnlineGame(
       } finally {
         moveInFlightRef.current = false;
       }
+    },
+    [playerId, handleIncomingSnapshot],
+  );
+
+  const switchSeat = useCallback(
+    async (targetSeat: TeamSeat) => {
+      const current = prevSnapshotRef.current;
+      if (!current || current.mode !== '2v2' || current.phase !== 'waiting') return;
+      const res = await apiRequest<{ snapshot: RoomSnapshot; version: number }>(
+        `/rooms/${encodeURIComponent(current.code)}/seat`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ playerId, targetSeat }),
+        },
+      );
+      if (res.ok && res.data) {
+        haptics.tap();
+        handleIncomingSnapshot(res.data.snapshot, res.data.version);
+      } else if (res.error) {
+        setError(res.error);
+      }
+    },
+    [playerId, handleIncomingSnapshot],
+  );
+
+  const sendEmote = useCallback(
+    async (emote: EmoteId): Promise<boolean> => {
+      const current = prevSnapshotRef.current;
+      if (!current) return false;
+      soundEngine.playEmote(emote);
+      haptics.tap();
+      const res = await apiRequest<{ snapshot: RoomSnapshot; version: number }>(
+        `/rooms/${encodeURIComponent(current.code)}/emote`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ playerId, emote }),
+        },
+      );
+      if (res.ok && res.data) {
+        handleIncomingSnapshot(res.data.snapshot, res.data.version);
+        return true;
+      }
+      return false;
     },
     [playerId, handleIncomingSnapshot],
   );
@@ -752,6 +875,8 @@ export function useOnlineGame(
     peekRoom,
     joinRoom,
     playMove,
+    switchSeat,
+    sendEmote,
     resign,
     requestRematch,
     leaveRoom,

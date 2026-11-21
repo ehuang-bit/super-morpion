@@ -52,10 +52,53 @@ export type EndReason =
   | 'abandoned'
   | 'aborted';
 
+export type RoomMode = '1v1' | '2v2';
+
+/** Sièges en mode 2v2 : équipe X = A & B, équipe O = C & D. */
+export type TeamSeat = 'A' | 'B' | 'C' | 'D';
+
+export const TEAM_SEAT_SYMBOL: Record<TeamSeat, Player> = {
+  A: 'X',
+  B: 'X',
+  C: 'O',
+  D: 'O',
+};
+
+/** Ordre de remplissage naturel pour équilibrer les deux équipes. */
+export const TEAM_SEAT_FILL_ORDER: readonly TeamSeat[] = ['A', 'C', 'B', 'D'];
+
+/** Ordre des tours en 2v2 : A puis C puis B puis D (ou C → A → D → B si O ouvre). */
+export function getTurnSeatOrder(startingPlayer: Player = 'X'): readonly TeamSeat[] {
+  return startingPlayer === 'X' ? ['A', 'C', 'B', 'D'] : ['C', 'A', 'D', 'B'];
+}
+
+export type EmoteId = 'fire' | 'clap' | 'oops' | 'mindblown' | 'clock' | 'gg';
+
+export const EMOTE_IDS: readonly EmoteId[] = [
+  'fire',
+  'clap',
+  'oops',
+  'mindblown',
+  'clock',
+  'gg',
+];
+
+export interface RoomEmote {
+  id: string;
+  emote: EmoteId;
+  senderId: string;
+  senderPseudo: string;
+  senderSymbol: Player;
+  senderSeat?: TeamSeat | null;
+  sentAt: number;
+}
+
 export interface RoomPlayer {
   id: string;
   pseudo: string;
   symbol: Player;
+  /** Siège en 2v2 (A/B pour X, C/D pour O). */
+  seat?: TeamSeat;
   connected: boolean;
   score: number;
   elo: number;
@@ -68,6 +111,8 @@ export interface RoomPlayer {
 
 export interface RoomSnapshot {
   code: string;
+  /** Mode du salon : 1v1 classique ou 2v2 en équipes (AB vs CD). */
+  mode: RoomMode;
   phase: 'waiting' | 'playing' | 'finished';
   timeControl: TimeControl;
   initialTimeMs: number | null;
@@ -75,6 +120,14 @@ export interface RoomSnapshot {
     X: RoomPlayer | null;
     O: RoomPlayer | null;
   };
+  /** En 2v2, détail des 4 sièges (A/B = équipe X, C/D = équipe O). */
+  seats: Record<TeamSeat, RoomPlayer | null> | null;
+  /** En 2v2 pendant la partie, siège dont c'est exactement le tour. */
+  activeSeat: TeamSeat | null;
+  /** Nombre de spectateurs connectés en direct. */
+  spectatorCount: number;
+  /** Dernier tampon / emote envoyé dans le salon. */
+  lastEmote: RoomEmote | null;
   gameState: GameState;
   clocks: {
     X: number;
@@ -83,7 +136,7 @@ export interface RoomSnapshot {
   turnStartedAt: number | null;
   /** Temps accordé pour chaque coup (voir `MOVE_TIME_LIMIT_MS`). */
   moveTimeLimitMs: number;
-  /** Dépassements d'affilée de la limite par coup, pour chaque joueur. */
+  /** Dépassements d'affilée de la limite par coup, pour chaque joueur/équipe. */
   moveTimeouts: {
     X: number;
     O: number;
@@ -102,10 +155,14 @@ export interface RoomSnapshot {
 
 export interface RoomPeekInfo {
   code: string;
+  mode: RoomMode;
   phase: 'waiting' | 'playing' | 'finished';
   timeControl: TimeControl;
   hostPseudo: string | null;
   isFull: boolean;
+  playerCount: number;
+  maxPlayers: number;
+  spectatorCount: number;
 }
 
 export type AuthProvider =
@@ -115,12 +172,31 @@ export type AuthProvider =
   | 'microsoft'
   | 'email';
 
+export interface AccountStreak {
+  /** Série actuelle en jours consécutifs (0 si rompue ou jamais commencée). */
+  current: number;
+  /** Meilleure série historique du compte. */
+  best: number;
+  /** Dernier jour d'activité validé (YYYY-MM-DD UTC), ou null. */
+  lastActiveDate: string | null;
+  /** Indique si la journée en cours est déjà validée. */
+  activeToday: boolean;
+  /** Vrai si une série est en cours mais pas encore validée aujourd'hui. */
+  atRisk: boolean;
+  /** Nombre total de jours distincts avec activité. */
+  totalActiveDays: number;
+  /** Activité des 7 derniers jours (du plus ancien à aujourd'hui). */
+  recentDays: { date: string; active: boolean }[];
+}
+
 export interface AuthUser {
   id: string;
   username: string;
   createdAt: number;
   provider?: AuthProvider;
   avatarUrl?: string | null;
+  /** Flamme quotidienne réservée aux comptes inscrits (jamais aux invités). */
+  streak?: AccountStreak;
 }
 
 export interface MatchHistoryItem {
@@ -150,6 +226,8 @@ export interface PlayerStatsPayload {
   /** Pourcentage de joueurs classés ayant un classement inférieur. */
   percentile: number | null;
   rankedPlayers: number;
+  /** Flamme quotidienne du compte (null pour les invités). */
+  accountStreak?: AccountStreak | null;
 }
 
 export interface LeaderboardEntry {
@@ -162,6 +240,8 @@ export interface LeaderboardEntry {
   wins: number;
   tier: string;
   isSelf: boolean;
+  /** Série quotidienne active du compte (jours consécutifs). */
+  dailyStreak?: number;
 }
 
 export interface LeaderboardPayload {

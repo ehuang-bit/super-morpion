@@ -3,10 +3,17 @@ import { flushSync } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { getEloTier } from '@shared/elo';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
-import { MOVE_TIME_LIMIT_MS, type TimeControl } from '@shared/protocol';
+import {
+  MOVE_TIME_LIMIT_MS,
+  type RoomEmote,
+  type RoomMode,
+  type TimeControl,
+} from '@shared/protocol';
 import { CheckCircle2, Eye, Flag, LogOut, RotateCcw, X } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { CustomizeView } from './components/CustomizeView';
+import { DailyPuzzleView } from './components/DailyPuzzleView';
+import { EmoteBar } from './components/EmoteBar';
 import { GameEndBanner } from './components/GameEndBanner';
 import { GlobalBoard } from './components/GlobalBoard';
 import { LeaderboardView } from './components/LeaderboardView';
@@ -19,16 +26,23 @@ import {
   PlayerBar,
   PlayerCard,
   TacticalStatusStrip,
+  TeamRelayStrip,
 } from './components/PlayerBar';
 import { PlayWorkspace } from './components/PlayWorkspace';
 import { RulesModal } from './components/RulesModal';
 import { Sidebar, type NavTab } from './components/Sidebar';
 import { StatsView } from './components/StatsView';
+import { StreakCelebrationToast } from './components/StreakBadge';
 import { TurnTimer } from './components/TurnTimer';
+import { VictoryCardModal } from './components/VictoryCardModal';
 import { DEMO_MODE } from './dev/demoMode';
 import { useAuth } from './hooks/useAuth';
 import { useClockTick } from './hooks/useClockTick';
-import { useOnlineGame } from './hooks/useOnlineGame';
+import {
+  getLocalSeat,
+  getLocalSymbol,
+  useOnlineGame,
+} from './hooks/useOnlineGame';
 import type { BoardPreferences } from './types/boardPrefs';
 import {
   applyThemeToDocument,
@@ -54,6 +68,7 @@ import {
   savePseudo,
   saveTheme,
 } from './utils/storage';
+import type { VictoryCardData } from './utils/victoryCard';
 
 function extractRoomCodeFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/room\/([A-Za-z0-9]{4,8})\/?$/i);
@@ -90,6 +105,9 @@ export function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [confirmResign, setConfirmResign] = useState(false);
   const [endBannerHidden, setEndBannerHidden] = useState(false);
+  const [victoryCardOpen, setVictoryCardOpen] = useState(false);
+  const [visibleEmote, setVisibleEmote] = useState<RoomEmote | null>(null);
+  const lastSeenEmoteIdRef = useRef<string | null>(null);
   const [routeRoomCode, setRouteRoomCode] = useState<string | null>(() =>
     extractRoomCodeFromPath(window.location.pathname),
   );
@@ -125,14 +143,33 @@ export function App() {
   useEffect(() => {
     applyThemeToDocument(theme);
     // Applique la palette sauvegardée au premier chargement uniquement
-    // (les changements suivants passent par handleChangeTheme avec onde circulaire)
+    // (les changements suivants passent par handleChangeTheme avec fondu doux)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reset resign confirmation when room phase changes
+  // Reset resign confirmation & souvenir modal when room phase changes
   useEffect(() => {
     setConfirmResign(false);
-  }, [onlineGame.snapshot?.phase]);
+    if (onlineGame.snapshot?.phase !== 'finished') {
+      setVictoryCardOpen(false);
+    }
+  }, [onlineGame.snapshot?.phase, onlineGame.snapshot?.gameNumber]);
+
+  // Affichage éphémère des tampons d'encre / emotes reçus (2,8 s)
+  const latestEmote = onlineGame.snapshot?.lastEmote ?? null;
+  useEffect(() => {
+    if (!latestEmote) {
+      setVisibleEmote(null);
+      return;
+    }
+    if (lastSeenEmoteIdRef.current === latestEmote.id) return;
+    lastSeenEmoteIdRef.current = latestEmote.id;
+    setVisibleEmote(latestEmote);
+    const timer = window.setTimeout(() => {
+      setVisibleEmote((curr) => (curr?.id === latestEmote.id ? null : curr));
+    }, 2800);
+    return () => window.clearTimeout(timer);
+  }, [latestEmote]);
 
   useEffect(() => {
     if (!confirmResign) return;
@@ -177,17 +214,20 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [auth.notice, auth.clearNotice]);
 
-  // Onglet du navigateur : « À toi de jouer » quand l'adversaire a joué
+  // Onglet du navigateur : « À toi de jouer » quand c'est exactement notre tour (1v1 ou 2v2)
   const snapPhase = onlineGame.snapshot?.phase;
+  const snapMode = onlineGame.snapshot?.mode ?? '1v1';
   const snapTurn = onlineGame.snapshot?.gameState.currentPlayer;
-  const snapLocal: Player | null =
-    onlineGame.snapshot?.players.X?.id === playerId
-      ? 'X'
-      : onlineGame.snapshot?.players.O?.id === playerId
-        ? 'O'
-        : null;
+  const snapActiveSeat = onlineGame.snapshot?.activeSeat ?? null;
+  const snapLocalSeat = getLocalSeat(onlineGame.snapshot, playerId);
+  const snapLocal = getLocalSymbol(onlineGame.snapshot, playerId);
+
   useEffect(() => {
-    const myTurn = snapPhase === 'playing' && snapLocal !== null && snapTurn === snapLocal;
+    const myTurn =
+      snapPhase === 'playing' &&
+      (snapMode === '2v2'
+        ? snapLocalSeat !== null && snapActiveSeat === snapLocalSeat
+        : snapLocal !== null && snapTurn === snapLocal);
     const update = () => {
       document.title =
         document.hidden && myTurn ? '● À toi de jouer · Super Morpion' : BASE_TITLE;
@@ -195,7 +235,7 @@ export function App() {
     update();
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
-  }, [snapPhase, snapTurn, snapLocal]);
+  }, [snapPhase, snapMode, snapTurn, snapActiveSeat, snapLocalSeat, snapLocal]);
 
   // Moments forts : présentation des joueurs au lancement, séquence de fin.
   // Rien n'est joué si le système demande de réduire les animations.
@@ -242,22 +282,36 @@ export function App() {
       previous.key === key &&
       previous.phase === 'playing' &&
       liveSnapshot.endReason !== 'aborted' &&
-      snapLocal !== null &&
-      !reduceMotion
+      snapLocal !== null
     ) {
-      // Fin de partie vécue en direct (pas un rechargement de page)
-      setOutcomeAnimatedKey(key);
-      setOutcome({
-        key,
-        kind:
-          liveSnapshot.matchWinner === null
-            ? 'draw'
-            : liveSnapshot.matchWinner === snapLocal
-              ? 'win'
-              : 'loss',
-      });
+      // Actualise la flamme quotidienne du compte connecté à la fin de la partie
+      if (auth.token) {
+        window.setTimeout(() => {
+          void auth.refreshSession();
+        }, 250);
+      }
+      if (!reduceMotion) {
+        // Fin de partie vécue en direct (pas un rechargement de page)
+        setOutcomeAnimatedKey(key);
+        setOutcome({
+          key,
+          kind:
+            liveSnapshot.matchWinner === null
+              ? 'draw'
+              : liveSnapshot.matchWinner === snapLocal
+                ? 'win'
+                : 'loss',
+        });
+      }
     }
-  }, [liveSnapshot, liveClockOffsetMs, reduceMotion, snapLocal]);
+  }, [
+    liveSnapshot,
+    liveClockOffsetMs,
+    reduceMotion,
+    snapLocal,
+    auth.token,
+    auth.refreshSession,
+  ]);
 
   useEffect(() => {
     if (!intro) return;
@@ -388,10 +442,11 @@ export function App() {
     [],
   );
 
-  const handleCreateRoom = async () => {
+  const handleCreateRoom = async (mode: RoomMode = '1v1') => {
     const snap = await onlineGame.createRoom({
       pseudo: activePseudo,
       timeControl,
+      mode,
     });
     if (snap) {
       autoAttemptedRef.current = snap.code;
@@ -421,6 +476,8 @@ export function App() {
     saveLastJoinedRoom(null);
     onlineGame.leaveRoom();
     setRouteRoomCode(null);
+    setVictoryCardOpen(false);
+    setVisibleEmote(null);
     setPreviewInfo({ preview: null, hoveredMove: null });
     navigateTo('/');
   }, [onlineGame, navigateTo]);
@@ -449,15 +506,43 @@ export function App() {
         onlineGame.snapshot.phase === 'finished'),
   );
   const viewKey =
-    activeTab === 'stats'
-      ? 'stats'
-      : activeTab === 'leaderboard'
-        ? 'leaderboard'
-        : activeTab === 'customize'
-          ? 'customize'
-          : inMatchView
-            ? `match-${onlineGame.snapshot?.code ?? ''}`
-            : 'home';
+    activeTab === 'daily'
+      ? 'daily'
+      : activeTab === 'stats'
+        ? 'stats'
+        : activeTab === 'leaderboard'
+          ? 'leaderboard'
+          : activeTab === 'customize'
+            ? 'customize'
+            : inMatchView
+              ? `match-${onlineGame.snapshot?.code ?? ''}`
+              : 'home';
+
+  const victoryCardData: VictoryCardData | null = useMemo(() => {
+    if (!liveSnapshot || liveSnapshot.phase !== 'finished') return null;
+    const is2v2 = liveSnapshot.mode === '2v2' && liveSnapshot.seats !== null;
+    const teamXNames = is2v2
+      ? [liveSnapshot.seats!.A?.pseudo ?? 'Joueur A', liveSnapshot.seats!.B?.pseudo ?? 'Joueur B']
+      : [liveSnapshot.players.X?.pseudo ?? 'Joueur X'];
+    const teamONames = is2v2
+      ? [liveSnapshot.seats!.C?.pseudo ?? 'Joueur C', liveSnapshot.seats!.D?.pseudo ?? 'Joueur D']
+      : [liveSnapshot.players.O?.pseudo ?? 'Joueur O'];
+    const myElo =
+      snapLocal && liveSnapshot.eloResult ? liveSnapshot.eloResult[snapLocal] : null;
+    return {
+      gameState: liveSnapshot.gameState,
+      mode: liveSnapshot.mode,
+      teamXNames,
+      teamONames,
+      matchWinner: liveSnapshot.matchWinner,
+      endReason: liveSnapshot.endReason,
+      localSymbol: snapLocal,
+      timeControl: liveSnapshot.timeControl,
+      eloDelta: myElo && myElo.rated !== false ? myElo.delta : null,
+      eloAfter: myElo && myElo.rated !== false ? myElo.after : null,
+      pieceStyle: boardPrefs.pieceStyle,
+    };
+  }, [liveSnapshot, snapLocal, boardPrefs.pieceStyle]);
 
   const renderMainView = () => {
     // 0. Couleurs & personnalisation du plateau
@@ -472,6 +557,19 @@ export function App() {
           onBackToPlay={() => setActiveTab('play')}
           hapticsEnabled={hapticsEnabled}
           onToggleHaptics={handleToggleHaptics}
+        />
+      );
+    }
+
+    // 0b. Défi tactique du jour
+    if (activeTab === 'daily') {
+      return (
+        <DailyPuzzleView
+          boardPrefs={boardPrefs}
+          user={auth.user}
+          onSolvedDaily={() => void auth.recordStreakActivity('daily')}
+          onOpenAuth={() => setAuthModalOpen(true)}
+          onBackToPlay={() => setActiveTab('play')}
         />
       );
     }
@@ -503,6 +601,7 @@ export function App() {
           onRefresh={() => void onlineGame.fetchStats(activePseudo)}
           onBackToPlay={() => setActiveTab('play')}
           onOpenAuth={() => setAuthModalOpen(true)}
+          onOpenDaily={() => setActiveTab('daily')}
           onLogout={auth.user ? () => void auth.logout() : undefined}
         />
       );
@@ -515,13 +614,10 @@ export function App() {
         onlineGame.snapshot.phase === 'finished')
     ) {
       const snap = onlineGame.snapshot;
-
-      const localSymbol: Player | null =
-        snap.players.X?.id === playerId
-          ? 'X'
-          : snap.players.O?.id === playerId
-            ? 'O'
-            : null;
+      const is2v2 = snap.mode === '2v2' && snap.seats !== null;
+      const localSeat = getLocalSeat(snap, playerId);
+      const localSymbol = getLocalSymbol(snap, playerId);
+      const isSpectator = localSymbol === null;
       const opponent =
         localSymbol === 'X'
           ? snap.players.O
@@ -531,13 +627,16 @@ export function App() {
 
       const canInteract =
         snap.phase === 'playing' &&
-        localSymbol !== null &&
-        snap.gameState.currentPlayer === localSymbol;
+        (is2v2
+          ? localSeat !== null && snap.activeSeat === localSeat
+          : localSymbol !== null && snap.gameState.currentPlayer === localSymbol);
 
       const selfVotedRematch = snap.rematchVotes.includes(playerId);
-      const opponentVotedRematch = opponent
-        ? snap.rematchVotes.includes(opponent.id)
-        : false;
+      const opponentVotedRematch = is2v2
+        ? snap.rematchVotes.some((id) => id !== playerId)
+        : opponent
+          ? snap.rematchVotes.includes(opponent.id)
+          : false;
 
       const xCaptured = snap.gameState.boards.filter((b) => b.status === 'X').length;
       const oCaptured = snap.gameState.boards.filter((b) => b.status === 'O').length;
@@ -552,9 +651,21 @@ export function App() {
         snap.matchWinner !== null &&
         snap.matchWinner !== localSymbol;
       const topSymbol: Player = bottomSymbol === 'X' ? 'O' : 'X';
+      const startingPlayer: Player =
+        snap.gameState.moveHistory[0]?.player ?? snap.gameState.currentPlayer;
 
       const renderMobileCard = (symbol: Player) => {
         const clockMs = onlineClockValues ? onlineClockValues[symbol] : null;
+        const teamSeats = symbol === 'X' ? (['A', 'B'] as const) : (['C', 'D'] as const);
+        const teamMembers =
+          is2v2 && snap.seats
+            ? teamSeats.map((seat) => ({
+                seat,
+                player: snap.seats![seat],
+                isActiveSeat: snap.phase === 'playing' && snap.activeSeat === seat,
+                isSelfSeat: localSeat === seat,
+              }))
+            : undefined;
         return (
           <PlayerCard
             symbol={symbol}
@@ -571,6 +682,8 @@ export function App() {
             capturedCount={symbol === 'X' ? xCaptured : oCaptured}
             pieceStyle={boardPrefs.pieceStyle}
             variant="wide"
+            teamMembers={teamMembers}
+            activeEmote={visibleEmote}
           />
         );
       };
@@ -596,6 +709,12 @@ export function App() {
               hoveredMove={previewInfo.hoveredMove}
               pieceStyle={boardPrefs.pieceStyle}
               moveTimeouts={snap.moveTimeouts}
+              mode={snap.mode}
+              seats={snap.seats}
+              activeSeat={snap.activeSeat}
+              localSeat={localSeat}
+              spectatorCount={snap.spectatorCount}
+              activeEmote={visibleEmote}
             />
           </div>
 
@@ -605,6 +724,9 @@ export function App() {
               timeControl={snap.timeControl}
               eloStakes={snap.eloStakes}
               perspectiveSymbol={localSymbol}
+              mode={snap.mode}
+              spectatorCount={snap.spectatorCount}
+              isSpectator={isSpectator}
             />
           </div>
 
@@ -612,6 +734,15 @@ export function App() {
           <div className="w-full flex flex-col items-center gap-2 my-auto">
             <div className="sm:hidden w-full flex flex-col gap-1.5">
               {renderMobileCard(topSymbol)}
+              {is2v2 && snap.seats && (
+                <TeamRelayStrip
+                  seats={snap.seats}
+                  activeSeat={snap.activeSeat}
+                  localSeat={localSeat}
+                  startingPlayer={startingPlayer}
+                  phase={snap.phase}
+                />
+              )}
               <TacticalStatusStrip
                 players={snap.players}
                 gameState={snap.gameState}
@@ -623,6 +754,11 @@ export function App() {
                 preview={previewInfo.preview}
                 hoveredMove={previewInfo.hoveredMove}
                 moveTimeouts={snap.moveTimeouts}
+                mode={snap.mode}
+                seats={snap.seats}
+                activeSeat={snap.activeSeat}
+                localSeat={localSeat}
+                spectatorCount={snap.spectatorCount}
               />
             </div>
 
@@ -661,11 +797,16 @@ export function App() {
                   endReason={snap.endReason}
                   eloResult={snap.eloResult}
                   isOnline
+                  mode={snap.mode}
+                  seats={snap.seats}
+                  rematchVotes={snap.rematchVotes}
+                  isSpectator={isSpectator}
                   selfVotedRematch={selfVotedRematch}
                   opponentVotedRematch={opponentVotedRematch}
                   skipRatingAnimation={outcomeAnimatedKey === matchKey}
                   hidden={endBannerHidden}
                   onHiddenChange={setEndBannerHidden}
+                  onOpenSouvenirCard={() => setVictoryCardOpen(true)}
                   onRematch={onlineGame.requestRematch}
                   onLeave={handleLeaveOnline}
                 />
@@ -688,14 +829,34 @@ export function App() {
             }}
           >
             <span
-              className="font-mono text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold min-w-0 truncate"
               style={{ color: 'var(--text-secondary)' }}
             >
-              Salon #{snap.code} · Manche {snap.gameNumber}
+              <span className="truncate">
+                Salon #{snap.code} · {is2v2 ? '2v2 · ' : ''}Manche {snap.gameNumber}
+              </span>
+              {isSpectator && (
+                <span
+                  className="shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-sans text-[10px] font-bold"
+                  style={{
+                    backgroundColor: 'var(--accent-active-bg)',
+                    color: 'var(--accent-active-text)',
+                  }}
+                >
+                  <Eye className="w-3 h-3" />
+                  <span>Spectateur</span>
+                </span>
+              )}
             </span>
 
-            <div className="flex items-center gap-1.5">
-              {snap.phase === 'playing' && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {!isSpectator && (
+                <EmoteBar
+                  onSendEmote={(emote) => void onlineGame.sendEmote(emote)}
+                />
+              )}
+
+              {!isSpectator && snap.phase === 'playing' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -755,23 +916,25 @@ export function App() {
                     <Eye className="w-3.5 h-3.5" />
                     <span>Résultat</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void onlineGame.requestRematch()}
-                    disabled={selfVotedRematch}
-                    className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-60"
-                    style={{
-                      backgroundColor: 'var(--btn-primary-bg)',
-                      color: 'var(--btn-primary-text)',
-                    }}
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>{selfVotedRematch ? 'Attente…' : 'Revanche'}</span>
-                  </button>
+                  {!isSpectator && (
+                    <button
+                      type="button"
+                      onClick={() => void onlineGame.requestRematch()}
+                      disabled={selfVotedRematch}
+                      className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-60"
+                      style={{
+                        backgroundColor: 'var(--btn-primary-bg)',
+                        color: 'var(--btn-primary-text)',
+                      }}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>{selfVotedRematch ? 'Attente…' : 'Revanche'}</span>
+                    </button>
+                  )}
                 </>
               )}
 
-              {(snap.phase === 'playing' || endBannerHidden) && (
+              {(snap.phase === 'playing' || endBannerHidden || isSpectator) && (
                 <button
                   type="button"
                   onClick={handleLeaveOnline}
@@ -798,6 +961,7 @@ export function App() {
     return (
       <PlayWorkspace
         user={auth.user}
+        localPlayerId={playerId}
         pseudo={pseudo}
         onChangePseudo={handleChangePseudo}
         timeControl={timeControl}
@@ -820,6 +984,7 @@ export function App() {
         peekError={onlineGame.peekError}
         onCreateRoom={handleCreateRoom}
         onJoinCode={handleJoinByCode}
+        onSwitchSeat={(seat) => void onlineGame.switchSeat(seat)}
         onJoinMatchmaking={() =>
           void onlineGame.joinMatchmaking({
             pseudo: activePseudo,
@@ -829,6 +994,7 @@ export function App() {
         onCancelMatchmaking={onlineGame.cancelMatchmaking}
         onCancelWaitingOrPrompt={handleLeaveOnline}
         onOpenStats={() => setActiveTab('stats')}
+        onOpenDaily={() => setActiveTab('daily')}
         tutorialRequest={tutorialRequest}
       />
     );
@@ -878,6 +1044,11 @@ export function App() {
           if (!auth.user) auth.continueAsGuest(pseudo);
           setAuthModalOpen(false);
         }}
+      />
+
+      <StreakCelebrationToast
+        notice={auth.streakNotice}
+        onDismiss={auth.clearStreakNotice}
       />
 
       <AnimatePresence>
@@ -956,6 +1127,12 @@ export function App() {
         }
       />
 
+      <VictoryCardModal
+        open={victoryCardOpen}
+        data={victoryCardData}
+        onClose={() => setVictoryCardOpen(false)}
+      />
+
       {!inMatchView && (
         <MobileTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
       )}
@@ -966,6 +1143,13 @@ export function App() {
             key={intro.key}
             players={liveSnapshot.players}
             localSymbol={snapLocal}
+            mode={liveSnapshot.mode}
+            seats={liveSnapshot.seats}
+            localSeat={snapLocalSeat}
+            startingPlayer={
+              liveSnapshot.gameState.moveHistory[0]?.player ??
+              liveSnapshot.gameState.currentPlayer
+            }
             eloStakes={liveSnapshot.eloStakes}
             timeControl={liveSnapshot.timeControl}
             pieceStyle={boardPrefs.pieceStyle}
@@ -1010,7 +1194,11 @@ export function App() {
 
       {DemoPanel && (
         <Suspense fallback={null}>
-          <DemoPanel />
+          <DemoPanel
+            onSpectateMatch={(code) => void handleJoinByCode(code)}
+            demoLoggedIn={Boolean(auth.user)}
+            onToggleDemoAccount={() => void auth.toggleDemoAccount()}
+          />
         </Suspense>
       )}
     </div>

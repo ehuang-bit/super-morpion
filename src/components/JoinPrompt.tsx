@@ -1,9 +1,9 @@
 import type { FormEvent } from 'react';
 import { TIME_CONTROL_LABELS, type RoomPeekInfo } from '@shared/protocol';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, Users } from 'lucide-react';
 import { formatRoomCode } from '../utils/format';
 
-interface JoinPromptProps {
+export interface JoinPromptProps {
   code: string;
   pseudo: string;
   onChangePseudo: (value: string) => void;
@@ -34,6 +34,9 @@ export function JoinPrompt({
   };
 
   const displayError = error ?? peekError;
+  const is2v2 = peekInfo?.mode === '2v2';
+  const isSpectatorJoin = Boolean(peekInfo?.isFull);
+  const spectatorCount = peekInfo?.spectatorCount ?? 0;
 
   return (
     <main className="w-full max-w-[440px] mx-auto px-3 flex-1 flex flex-col justify-center">
@@ -45,7 +48,7 @@ export function JoinPrompt({
           boxShadow: 'var(--shadow-card)',
         }}
       >
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span
             className="rounded-lg px-2.5 py-1 font-mono text-xs font-semibold tracking-[0.12em]"
             style={{
@@ -57,16 +60,35 @@ export function JoinPrompt({
             #{formatRoomCode(code)}
           </span>
           {peekInfo && (
-            <span
-              className="rounded-lg px-2.5 py-1 text-xs font-medium"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border-cell)',
-              }}
-            >
-              {TIME_CONTROL_LABELS[peekInfo.timeControl]}
-            </span>
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {is2v2 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold"
+                  style={{
+                    backgroundColor: 'var(--accent-active-bg)',
+                    color: 'var(--accent-active-text)',
+                    border: '1px solid var(--accent-active)',
+                  }}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>
+                    {isSpectatorJoin
+                      ? '2v2'
+                      : `2v2 · ${peekInfo.playerCount}/${peekInfo.maxPlayers} joueurs`}
+                  </span>
+                </span>
+              )}
+              <span
+                className="rounded-lg px-2.5 py-1 text-xs font-medium"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-cell)',
+                }}
+              >
+                {TIME_CONTROL_LABELS[peekInfo.timeControl]}
+              </span>
+            </div>
           )}
         </div>
 
@@ -99,35 +121,88 @@ export function JoinPrompt({
               <span>Retour à l’accueil</span>
             </button>
           </>
-        ) : peekInfo?.isFull ? (
-          <>
+        ) : isSpectatorJoin && peekInfo ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                style={{
+                  backgroundColor: 'var(--accent-active-bg)',
+                  color: 'var(--accent-active-text)',
+                  border: '1px solid var(--accent-active)',
+                }}
+              >
+                {peekInfo.phase === 'playing' && (
+                  <span className="live-dot" aria-hidden="true" />
+                )}
+                <Eye className="w-3.5 h-3.5" />
+                <span>
+                  {peekInfo.phase === 'playing'
+                    ? 'Partie en cours'
+                    : 'Salon complet · Mode spectateur'}
+                </span>
+              </span>
+              {spectatorCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border-main)',
+                  }}
+                >
+                  <span>
+                    {spectatorCount} spectateur{spectatorCount > 1 ? 's' : ''}
+                  </span>
+                </span>
+              )}
+            </div>
+
             <div>
               <h1
                 className="text-lg font-bold tracking-tight"
                 style={{ color: 'var(--text-primary)' }}
               >
-                Ce salon est complet
+                Regarder la partie en direct
               </h1>
               <p
-                className="text-sm mt-1"
+                className="text-sm mt-1 leading-relaxed"
                 style={{ color: 'var(--text-secondary)' }}
               >
-                Deux joueurs sont déjà installés dans cette partie.
+                {is2v2
+                  ? 'Les 4 joueurs sont en place — rejoins les gradins pour suivre ce 2v2 coup par coup.'
+                  : 'Les deux joueurs sont déjà en place — rejoins les gradins pour suivre le duel coup par coup.'}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={onBackHome}
-              className="tactile-btn inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 text-sm font-semibold"
-              style={{
-                backgroundColor: 'var(--btn-primary-bg)',
-                color: 'var(--btn-primary-text)',
-              }}
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Retour à l’accueil</span>
-            </button>
-          </>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onBackHome}
+                className="tactile-btn rounded-[10px] px-3.5 py-2.5 text-sm font-semibold"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-main)',
+                }}
+              >
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={onJoin}
+                disabled={!connected || isBusy}
+                className="tactile-btn flex-1 rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                style={{
+                  backgroundColor: 'var(--btn-primary-bg)',
+                  color: 'var(--btn-primary-text)',
+                }}
+              >
+                <Eye className="w-4 h-4" />
+                <span>Regarder en direct</span>
+              </button>
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
@@ -135,9 +210,13 @@ export function JoinPrompt({
                 className="text-lg font-bold tracking-tight"
                 style={{ color: 'var(--text-primary)' }}
               >
-                {peekInfo?.hostPseudo
-                  ? `${peekInfo.hostPseudo} vous invite à un duel`
-                  : 'Rejoindre le duel privé'}
+                {is2v2
+                  ? peekInfo?.hostPseudo
+                    ? `${peekInfo.hostPseudo} t’invite en 2v2`
+                    : 'Rejoindre le salon 2v2'
+                  : peekInfo?.hostPseudo
+                    ? `${peekInfo.hostPseudo} vous invite à un duel`
+                    : 'Rejoindre le duel privé'}
               </h1>
               <p
                 className="text-xs sm:text-sm mt-0.5"

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import type { PieceStyle } from '../types/boardPrefs';
 import { AnimatedNumber } from './AnimatedNumber';
+import { AccountStreakCard } from './StreakBadge';
 import { SymbolMark } from './Symbols';
 
 interface StatsViewProps {
@@ -41,6 +42,7 @@ interface StatsViewProps {
   onRefresh: () => void;
   onBackToPlay: () => void;
   onOpenAuth: () => void;
+  onOpenDaily?: () => void;
   onLogout?: () => void;
 }
 
@@ -87,6 +89,7 @@ export function StatsView({
   onRefresh,
   onBackToPlay,
   onOpenAuth,
+  onOpenDaily,
   onLogout,
 }: StatsViewProps) {
   const profile = stats?.profile ?? playerElo.profile;
@@ -411,6 +414,14 @@ export function StatsView({
           </span>
         </div>
       </section>
+
+      {/* Flamme quotidienne : active pour les comptes inscrits, verrouillée pour les invités */}
+      <AccountStreakCard
+        streak={stats?.accountStreak ?? user?.streak ?? null}
+        isAccount={Boolean(user)}
+        onOpenAuth={onOpenAuth}
+        onOpenDaily={onOpenDaily}
+      />
 
       {/* 4 KPI Cards */}
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">

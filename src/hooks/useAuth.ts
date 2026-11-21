@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EloProfile } from '@shared/elo';
-import type { AuthUser } from '@shared/protocol';
+import type { AccountStreak, AuthUser } from '@shared/protocol';
 import {
   completeMagicLink,
   getPendingMagicLinkEmail,
@@ -9,6 +9,8 @@ import {
   signInWithSocial,
   type SocialProvider,
 } from '../auth/firebase';
+import { DEMO_MODE } from '../dev/demoMode';
+import { soundEngine } from '../utils/soundEngine';
 import {
   getSavedAuthToken,
   getSavedPseudo,
@@ -39,10 +41,44 @@ export interface AuthOutcome {
   mergedGuest?: boolean;
 }
 
+export interface StreakNotice {
+  days: number;
+  milestone: number | null;
+}
+
 /** Étape « choisis ton pseudo » après une première connexion Google/Apple/e-mail. */
 export interface OnboardingState {
   suggestedUsername: string;
   mergedGuest: boolean;
+}
+
+async function authFetchJson<T>(
+  path: string,
+  method: 'GET' | 'POST',
+  body?: unknown,
+  token?: string | null,
+): Promise<ApiEnvelope<T>> {
+  const headers: Record<string, string> = {
+    ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  const init: RequestInit = {
+    method,
+    headers,
+    ...(method === 'POST' ? { body: JSON.stringify(body ?? {}) } : {}),
+  };
+
+  if (import.meta.env.DEV && DEMO_MODE) {
+    const { demoApiRequest } = await import('../dev/demoBackend');
+    return (await demoApiRequest(path, init)) as ApiEnvelope<T>;
+  }
+
+  try {
+    const res = await fetch(`/api/game${path}`, init);
+    return (await res.json()) as ApiEnvelope<T>;
+  } catch {
+    return { ok: false, error: 'Connexion au serveur impossible.' };
+  }
 }
 
 async function postJson<T>(
@@ -50,19 +86,7 @@ async function postJson<T>(
   body: unknown,
   token?: string | null,
 ): Promise<ApiEnvelope<T>> {
-  try {
-    const res = await fetch(`/api/game${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    return (await res.json()) as ApiEnvelope<T>;
-  } catch {
-    return { ok: false, error: 'Connexion au serveur impossible.' };
-  }
+  return authFetchJson<T>(path, 'POST', body, token);
 }
 
 export function useAuth(profileId: string) {
@@ -75,6 +99,7 @@ export function useAuth(profileId: string) {
   );
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [streakNotice, setStreakNotice] = useState<StreakNotice | null>(null);
   const [magicLinkSentTo, setMagicLinkSentTo] = useState<string | null>(null);
   const [magicLinkNeedsEmail, setMagicLinkNeedsEmail] = useState<boolean>(false);
   const magicLinkHandledRef = useRef(false);
@@ -105,6 +130,40 @@ export function useAuth(profileId: string) {
     }
   }, []);
 
+  const refreshSession = useCallback(async (overrideToken?: string | null) => {
+    const activeToken = overrideToken !== undefined ? overrideToken : token;
+    if (!activeToken) return null;
+    const json = await authFetchJson<{ user: AuthUser | null }>(
+      '/auth/me',
+      'GET',
+      undefined,
+      activeToken,
+    );
+    if (json.ok && json.data?.user) {
+      setUser((prev) => {
+        const nextUser = json.data!.user!;
+        if (
+          prev?.streak &&
+          nextUser.streak &&
+          !prev.streak.activeToday &&
+          nextUser.streak.activeToday &&
+          nextUser.streak.current > 0
+        ) {
+          setStreakNotice({
+            days: nextUser.streak.current,
+            milestone: [3, 7, 14, 30, 60, 100].includes(nextUser.streak.current)
+              ? nextUser.streak.current
+              : null,
+          });
+          soundEngine.playDailySolved();
+        }
+        return nextUser;
+      });
+      return json.data.user;
+    }
+    return null;
+  }, [token]);
+
   // Vérifie la session enregistrée au chargement
   useEffect(() => {
     const existingToken = getSavedAuthToken();
@@ -116,13 +175,9 @@ export function useAuth(profileId: string) {
     let active = true;
     const verifySession = async () => {
       try {
-        const res = await fetch('/api/game/auth/me', {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${existingToken}` },
-        });
-        const json = (await res.json()) as ApiEnvelope<{
+        const json = await authFetchJson<{
           user: AuthUser | null;
-        }>;
+        }>('/auth/me', 'GET', undefined, existingToken);
         if (!active) return;
 
         if (json.ok && json.data?.user) {
@@ -292,6 +347,34 @@ export function useAuth(profileId: string) {
   );
 
   const finishOnboarding = useCallback(() => setOnboarding(null), []);
+  const clearStreakNotice = useCallback(() => setStreakNotice(null), []);
+
+  /**
+   * Enregistre une activité quotidienne (match terminé ou Défi du jour réussi).
+   * Strictement réservé aux comptes inscrits (jamais aux invités).
+   */
+  const recordStreakActivity = useCallback(
+    async (source: 'daily' | 'match'): Promise<AccountStreak | null> => {
+      if (!token) return null;
+      const json = await postJson<{
+        streak: AccountStreak;
+        incremented?: boolean;
+        milestoneReached?: number | null;
+      }>('/streak/activity', { source }, token);
+      if (!json.ok || !json.data?.streak) return null;
+      const nextStreak = json.data.streak;
+      setUser((prev) => (prev ? { ...prev, streak: nextStreak } : prev));
+      if (json.data.incremented && nextStreak.current > 0) {
+        setStreakNotice({
+          days: nextStreak.current,
+          milestone: json.data.milestoneReached ?? null,
+        });
+        soundEngine.playDailySolved();
+      }
+      return nextStreak;
+    },
+    [token],
+  );
 
   const logout = useCallback(async () => {
     const activeToken = token;
@@ -300,6 +383,7 @@ export function useAuth(profileId: string) {
     setUser(null);
     setError(null);
     setOnboarding(null);
+    setStreakNotice(null);
     markEntryModeChosen();
     setEntryResolved(true);
 
@@ -307,6 +391,21 @@ export function useAuth(profileId: string) {
       await postJson('/auth/logout', {}, activeToken);
     }
   }, [token]);
+
+  /** Bascule compte démo / invité (développement uniquement, jamais en prod). */
+  const toggleDemoAccount = useCallback(async () => {
+    if (!(import.meta.env.DEV && DEMO_MODE)) return;
+    if (user) {
+      await logout();
+      return;
+    }
+    const json = await postJson<AuthApiPayload>('/auth/demo', {
+      pseudo: getSavedPseudo() || 'Camille',
+    });
+    if (json.ok && json.data) {
+      applySession(json.data);
+    }
+  }, [user, logout, applySession]);
 
   const continueAsGuest = useCallback((guestPseudo?: string) => {
     if (guestPseudo && guestPseudo.trim().length > 0) {
@@ -325,6 +424,8 @@ export function useAuth(profileId: string) {
     clearError,
     notice,
     clearNotice,
+    streakNotice,
+    clearStreakNotice,
     entryResolved,
     onboarding,
     finishOnboarding,
@@ -336,6 +437,9 @@ export function useAuth(profileId: string) {
     sendEmailLink,
     completeEmailLink,
     changeUsername,
+    recordStreakActivity,
+    refreshSession,
+    toggleDemoAccount,
     logout,
     continueAsGuest,
   };

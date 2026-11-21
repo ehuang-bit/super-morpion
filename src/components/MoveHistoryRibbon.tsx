@@ -100,13 +100,27 @@ export function MoveHistoryRibbon({ gameState }: MoveHistoryRibbonProps) {
                     }`,
                   }}
                 >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{
-                      backgroundColor:
-                        record.player === 'X' ? 'var(--x-color)' : 'var(--o-color)',
-                    }}
-                  />
+                  {record.seat ? (
+                    <span
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-[4px] font-mono text-[9px] font-extrabold leading-none shrink-0"
+                      style={{
+                        backgroundColor:
+                          record.player === 'X' ? 'var(--x-color)' : 'var(--o-color)',
+                        color: 'var(--bg-board)',
+                      }}
+                      title={`Siège ${record.seat} (Équipe ${record.player})`}
+                    >
+                      {record.seat}
+                    </span>
+                  ) : (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{
+                        backgroundColor:
+                          record.player === 'X' ? 'var(--x-color)' : 'var(--o-color)',
+                      }}
+                    />
+                  )}
                   <span style={{ color: 'var(--text-muted)' }}>{record.moveNumber}.</span>
                   <span className="font-medium">{coord}</span>
                   {record.auto && (

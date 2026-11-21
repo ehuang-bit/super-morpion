@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import type { AuthUser, LeaderboardPayload } from '@shared/protocol';
-import { Crown, LogIn, Medal, RefreshCw, Swords, Trophy } from 'lucide-react';
+import { Crown, Flame, LogIn, Medal, RefreshCw, Swords, Trophy } from 'lucide-react';
 import { AnimatedNumber } from './AnimatedNumber';
 
 interface LeaderboardViewProps {
@@ -155,6 +155,19 @@ export function LeaderboardView({
                           style={{ backgroundColor: 'var(--bg-board)', color: 'var(--accent-active-text)' }}
                         >
                           Toi
+                        </span>
+                      )}
+                      {typeof entry.dailyStreak === 'number' && entry.dailyStreak >= 2 && (
+                        <span
+                          className="shrink-0 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums"
+                          style={{
+                            backgroundColor: 'var(--accent-active-bg)',
+                            color: 'var(--accent-active-text)',
+                          }}
+                          title={`Série active : ${entry.dailyStreak} jours d’affilée`}
+                        >
+                          <Flame className="w-2.5 h-2.5" strokeWidth={2.2} />
+                          <span>{entry.dailyStreak}</span>
                         </span>
                       )}
                     </div>

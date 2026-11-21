@@ -129,18 +129,119 @@ export interface ThemeTransitionOrigin {
   y: number;
 }
 
-interface ViewTransitionLike {
-  ready: Promise<void>;
-  finished: Promise<void>;
-  skipTransition?: () => void;
+const THEME_MORPH_MS = 460;
+const THEME_HALO_MS = 540;
+
+let morphTimer: number | null = null;
+let activeHaloHost: HTMLElement | null = null;
+let activeHaloAnim: Animation | null = null;
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) {
+    return `rgba(200, 138, 46, ${alpha})`;
+  }
+  const r = Number.parseInt(clean.slice(0, 2), 16);
+  const g = Number.parseInt(clean.slice(2, 4), 16);
+  const b = Number.parseInt(clean.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    return `rgba(200, 138, 46, ${alpha})`;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-type DocumentWithTransition = Document & {
-  startViewTransition?: (callback: () => void) => ViewTransitionLike;
-};
+function cleanupActiveHalo(): void {
+  if (activeHaloAnim) {
+    try {
+      activeHaloAnim.cancel();
+    } catch {
+      // Animation déjà terminée ou annulée
+    }
+    activeHaloAnim = null;
+  }
+  if (activeHaloHost) {
+    activeHaloHost.remove();
+    activeHaloHost = null;
+  }
+}
 
-let activeTransition: ViewTransitionLike | null = null;
-let fadeTimer: number | null = null;
+/**
+ * Projette un léger halo d'encre diffus aux couleurs de la nouvelle palette
+ * depuis le bouton cliqué, sans bord dur ni découpe de l'écran.
+ */
+function spawnInkHalo(theme: ThemeId, origin: ThemeTransitionOrigin): void {
+  cleanupActiveHalo();
+
+  if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) {
+    return;
+  }
+
+  const meta = THEMES.find((item) => item.id === theme) ?? THEMES[0];
+  const x = Math.max(0, Math.min(window.innerWidth, origin.x));
+  const y = Math.max(0, Math.min(window.innerHeight, origin.y));
+  const maxRadius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y),
+  );
+  const radius = Math.max(220, maxRadius * 0.85);
+  const diameter = radius * 2;
+
+  const host = document.createElement('div');
+  host.setAttribute('aria-hidden', 'true');
+  host.setAttribute('data-theme-halo', 'true');
+  host.style.position = 'fixed';
+  host.style.inset = '0';
+  host.style.zIndex = '9998';
+  host.style.pointerEvents = 'none';
+  host.style.overflow = 'hidden';
+  host.style.transition = 'none';
+
+  const wash = document.createElement('div');
+  wash.style.position = 'absolute';
+  wash.style.left = `${x - radius}px`;
+  wash.style.top = `${y - radius}px`;
+  wash.style.width = `${diameter}px`;
+  wash.style.height = `${diameter}px`;
+  wash.style.borderRadius = '50%';
+  wash.style.transformOrigin = 'center center';
+  wash.style.willChange = 'transform, opacity';
+  wash.style.transition = 'none';
+  wash.style.background = `radial-gradient(circle, ${hexToRgba(meta.swatches.active, 0.22)} 0%, ${hexToRgba(meta.swatches.x, 0.14)} 38%, ${hexToRgba(meta.swatches.x, 0.04)} 58%, transparent 72%)`;
+
+  if (typeof wash.animate !== 'function') {
+    return;
+  }
+
+  host.appendChild(wash);
+  document.body.appendChild(host);
+  activeHaloHost = host;
+
+  const anim = wash.animate(
+    [
+      { transform: 'scale(0.08)', opacity: 0.9 },
+      { transform: 'scale(1.6)', opacity: 0 },
+    ],
+    {
+      duration: THEME_HALO_MS,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      fill: 'forwards',
+    },
+  );
+  activeHaloAnim = anim;
+
+  const finalize = () => {
+    if (activeHaloAnim === anim) {
+      activeHaloAnim = null;
+    }
+    if (activeHaloHost === host) {
+      activeHaloHost = null;
+    }
+    host.remove();
+  };
+
+  anim.onfinish = finalize;
+  anim.oncancel = finalize;
+}
 
 export function getOriginFromElement(el: HTMLElement | null | undefined): ThemeTransitionOrigin | undefined {
   if (!el || typeof window === 'undefined') return undefined;
@@ -163,8 +264,14 @@ export function applyThemeToDocument(
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Chargement initial ou animations réduites : changement immédiat sans transition
+  // Chargement initial ou animations réduites : changement immédiat sans transition ni halo
   if (!origin || reduced) {
+    if (morphTimer !== null) {
+      window.clearTimeout(morphTimer);
+      morphTimer = null;
+    }
+    root.classList.remove('theme-morphing');
+    cleanupActiveHalo();
     root.classList.add('no-transitions');
     root.setAttribute('data-theme', theme);
     onSyncCommit?.();
@@ -176,69 +283,19 @@ export function applyThemeToDocument(
     return;
   }
 
-  const doc = document as DocumentWithTransition;
-  if (typeof doc.startViewTransition === 'function') {
-    try {
-      activeTransition?.skipTransition?.();
-    } catch {
-      // Transition déjà terminée
-    }
-    try {
-      root.classList.remove('theme-fading');
-      root.classList.add('theme-revealing');
-      const transition = doc.startViewTransition(() => {
-        root.setAttribute('data-theme', theme);
-        onSyncCommit?.();
-      });
-      activeTransition = transition;
-      const x = Math.max(0, Math.min(window.innerWidth, origin.x));
-      const y = Math.max(0, Math.min(window.innerHeight, origin.y));
-      const endRadius = Math.hypot(
-        Math.max(x, window.innerWidth - x),
-        Math.max(y, window.innerHeight - y),
-      );
-      transition.ready
-        .then(() => {
-          root.animate(
-            {
-              clipPath: [
-                `circle(0px at ${x}px ${y}px)`,
-                `circle(${endRadius}px at ${x}px ${y}px)`,
-              ],
-            },
-            {
-              duration: 560,
-              easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-              pseudoElement: '::view-transition-new(root)',
-            },
-          );
-        })
-        .catch(() => {
-          // Repli silencieux si le navigateur annule la transition
-        });
-      transition.finished
-        .catch(() => {})
-        .finally(() => {
-          if (activeTransition === transition) {
-            activeTransition = null;
-          }
-          root.classList.remove('theme-revealing');
-        });
-      return;
-    } catch {
-      root.classList.remove('theme-revealing');
-    }
+  // Fondu synchronisé de toutes les surfaces + halo d'encre pictural depuis le bouton
+  if (morphTimer !== null) {
+    window.clearTimeout(morphTimer);
+    morphTimer = null;
   }
-
-  // Repli si View Transitions API indisponible : fondu doux des couleurs
-  if (fadeTimer !== null) {
-    window.clearTimeout(fadeTimer);
-  }
-  root.classList.add('theme-fading');
+  root.classList.remove('no-transitions');
+  root.classList.add('theme-morphing');
   root.setAttribute('data-theme', theme);
   onSyncCommit?.();
-  fadeTimer = window.setTimeout(() => {
-    root.classList.remove('theme-fading');
-    fadeTimer = null;
-  }, 420);
+  spawnInkHalo(theme, origin);
+
+  morphTimer = window.setTimeout(() => {
+    root.classList.remove('theme-morphing');
+    morphTimer = null;
+  }, THEME_MORPH_MS);
 }

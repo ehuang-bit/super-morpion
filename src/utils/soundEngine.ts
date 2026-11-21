@@ -1,4 +1,16 @@
 import type { Player } from '@shared/gameEngine';
+import type { BoardTension } from './boardTension';
+
+type EmoteMood = 'joyful' | 'surprised' | 'pressure' | 'neutral';
+
+const JOYFUL_EMOTE_PATTERN =
+  /👏|🎉|😄|😊|😁|🥳|👍|🤝|✨|💚|❤️|🙌|😎|🏆|👋|\b(gg|bravo|bien|nice|joy|happy|clap|cheers|merci|smile|salut|hello|wave)\b/i;
+
+const SURPRISED_EMOTE_PATTERN =
+  /😮|😲|🤯|😱|👀|❗|⁉️|🫣|😳|😵|\b(wow|oups|oops|mindblown|surpris|whoa|what|quoi|shock|gasp|hein)\b/i;
+
+const PRESSURE_EMOTE_PATTERN =
+  /🔥|⚡|😤|😬|😅|💦|⏳|⏰|🤔|😈|💪|🎯|💀|\b(fire|feu|press|tens|sweat|chaud|vite|hurry|think|hmm|clock|focus|danger|hot|ouch|aie)\b/i;
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -45,33 +57,52 @@ class SoundEngine {
     return buffer;
   }
 
+  private classifyEmote(emote: string): EmoteMood {
+    const raw = emote.trim();
+    if (!raw) return 'neutral';
+    if (SURPRISED_EMOTE_PATTERN.test(raw)) return 'surprised';
+    if (PRESSURE_EMOTE_PATTERN.test(raw)) return 'pressure';
+    if (JOYFUL_EMOTE_PATTERN.test(raw)) return 'joyful';
+    return 'neutral';
+  }
+
   /**
-   * Matte wood/ceramic piece placement tap.
+   * Pose d'une pièce (bois/céramique mat), enrichie selon la tension du plateau :
+   * - `'heated'` : harmonique douce à la quinte supérieure ;
+   * - `'match-point'` : attaque céramique plus vive et résonance grave tendue.
    */
-  public playMove(player: Player): void {
+  public playMove(player: Player, tension: BoardTension = 'calm'): void {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const isMatchPoint = tension === 'match-point';
 
-    // Tactile transient
+    // Transitoire tactile (un peu plus vif sur balle de match)
     const noise = ctx.createBufferSource();
     noise.buffer = this.getNoiseBuffer(ctx);
     const filter = ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(player === 'X' ? 920 : 1180, now);
-    filter.Q.setValueAtTime(2.2, now);
+    const baseFilterFreq = player === 'X' ? 920 : 1180;
+    filter.frequency.setValueAtTime(
+      isMatchPoint ? baseFilterFreq * 1.18 : baseFilterFreq,
+      now,
+    );
+    filter.Q.setValueAtTime(isMatchPoint ? 2.6 : 2.2, now);
 
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.08, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.032);
+    noiseGain.gain.setValueAtTime(isMatchPoint ? 0.11 : 0.08, now);
+    noiseGain.gain.exponentialRampToValueAtTime(
+      0.001,
+      now + (isMatchPoint ? 0.038 : 0.032),
+    );
 
     noise.connect(filter);
     filter.connect(noiseGain);
     noiseGain.connect(ctx.destination);
     noise.start(now);
 
-    // Warm ceramic/wood body tone
+    // Corps chaud en céramique/bois
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
     const startFreq = player === 'X' ? 285 : 345;
@@ -81,19 +112,45 @@ class SoundEngine {
 
     const toneGain = ctx.createGain();
     toneGain.gain.setValueAtTime(0.001, now);
-    toneGain.gain.linearRampToValueAtTime(0.11, now + 0.004);
+    toneGain.gain.linearRampToValueAtTime(isMatchPoint ? 0.125 : 0.11, now + 0.004);
     toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.068);
 
     osc.connect(toneGain);
     toneGain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.075);
+
+    // Partie disputée ou balle de match : harmonique douce à la quinte supérieure
+    if (tension === 'heated' || isMatchPoint) {
+      this.tone(ctx, {
+        freq: startFreq * 1.5,
+        start: now + 0.004,
+        duration: isMatchPoint ? 0.15 : 0.14,
+        peak: isMatchPoint ? 0.032 : 0.038,
+        type: 'sine',
+      });
+    }
+
+    // Balle de match : résonance grave tendue pour souligner l'enjeu
+    if (isMatchPoint) {
+      const lowFreq = player === 'X' ? 110 : 130.81;
+      this.tone(ctx, {
+        freq: lowFreq,
+        glideTo: lowFreq * 0.96,
+        start: now + 0.005,
+        duration: 0.26,
+        peak: 0.068,
+        type: 'sine',
+      });
+    }
   }
 
   /**
-   * Soft resonant two-note cadence when a sub-board is captured.
+   * Cadence douce à deux notes lors de la capture d'une zone.
+   * Sur balle de match (`matchPoint`), une troisième note grave souligne
+   * qu'une seule zone sépare désormais le joueur de la victoire.
    */
-  public playCapture(player: Player): void {
+  public playCapture(player: Player, matchPoint = false): void {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
@@ -116,6 +173,24 @@ class SoundEngine {
       osc.start(start);
       osc.stop(start + 0.24);
     });
+
+    if (matchPoint) {
+      const lowFreq = player === 'X' ? 164.81 : 146.83;
+      this.tone(ctx, {
+        freq: lowFreq,
+        start: now + 0.12,
+        duration: 0.44,
+        peak: 0.075,
+        type: 'triangle',
+      });
+      this.tone(ctx, {
+        freq: lowFreq,
+        start: now + 0.125,
+        duration: 0.52,
+        peak: 0.055,
+        type: 'sine',
+      });
+    }
   }
 
   /**
@@ -228,12 +303,28 @@ class SoundEngine {
     osc.stop(start + duration + 0.03);
   }
 
-  /** Souffle filtré (bruit) qui monte ou descend : encre, choc. */
+  /** Souffle filtré (bruit) qui monte ou descend : encre, air, choc. */
   private sweep(
     ctx: AudioContext,
-    options: { start: number; duration: number; from: number; to: number; peak: number },
+    options: {
+      start: number;
+      duration: number;
+      from: number;
+      to: number;
+      peak: number;
+      filterType?: BiquadFilterType;
+      q?: number;
+    },
   ): void {
-    const { start, duration, from, to, peak } = options;
+    const {
+      start,
+      duration,
+      from,
+      to,
+      peak,
+      filterType = 'lowpass',
+      q,
+    } = options;
     const length = Math.max(1, Math.floor(ctx.sampleRate * duration));
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -244,9 +335,12 @@ class SoundEngine {
     source.buffer = buffer;
 
     const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
+    filter.type = filterType;
     filter.frequency.setValueAtTime(from, start);
     filter.frequency.exponentialRampToValueAtTime(to, start + duration);
+    if (q !== undefined) {
+      filter.Q.setValueAtTime(q, start);
+    }
 
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.001, start);
@@ -280,13 +374,211 @@ class SoundEngine {
     });
   }
 
-  /** Coup libre : petit arpège montant, léger. */
+  /** Coup libre : souffle d'air filtré suivi d'un petit arpège montant, léger. */
   public playFreeMove(): void {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
+
+    this.sweep(ctx, {
+      start: now + 0.04,
+      duration: 0.24,
+      from: 680,
+      to: 2100,
+      peak: 0.032,
+      filterType: 'bandpass',
+      q: 2.4,
+    });
+
     [523.25, 659.25, 783.99].forEach((freq, index) => {
       this.tone(ctx, { freq, start: now + 0.1 + index * 0.07, duration: 0.2, peak: 0.06 });
+    });
+  }
+
+  /**
+   * Emote de match : petit « pop » de tampon d'encre chaleureux et discret,
+   * modulé selon l'humeur de l'emote (joyeux, surpris, pression, neutre).
+   */
+  public playEmote(emote: string): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const mood = this.classifyEmote(emote);
+
+    // Grain discret de tampon sur papier
+    const noise = ctx.createBufferSource();
+    noise.buffer = this.getNoiseBuffer(ctx);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(
+      mood === 'pressure' ? 880 : mood === 'surprised' ? 1320 : 1120,
+      now,
+    );
+    filter.Q.setValueAtTime(2.6, now);
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.028, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noise.start(now);
+
+    if (mood === 'joyful') {
+      this.tone(ctx, {
+        freq: 260,
+        glideTo: 440,
+        start: now,
+        duration: 0.068,
+        peak: 0.058,
+        type: 'sine',
+      });
+      this.tone(ctx, {
+        freq: 659.25,
+        start: now + 0.032,
+        duration: 0.095,
+        peak: 0.026,
+        type: 'sine',
+      });
+      return;
+    }
+
+    if (mood === 'surprised') {
+      this.tone(ctx, {
+        freq: 300,
+        glideTo: 640,
+        start: now,
+        duration: 0.074,
+        peak: 0.056,
+        type: 'sine',
+      });
+      this.tone(ctx, {
+        freq: 740,
+        start: now + 0.045,
+        duration: 0.072,
+        peak: 0.026,
+        type: 'sine',
+      });
+      return;
+    }
+
+    if (mood === 'pressure') {
+      this.tone(ctx, {
+        freq: 220,
+        glideTo: 148,
+        start: now,
+        duration: 0.075,
+        peak: 0.06,
+        type: 'triangle',
+      });
+      this.tone(ctx, {
+        freq: 130.81,
+        start: now + 0.015,
+        duration: 0.11,
+        peak: 0.036,
+        type: 'sine',
+      });
+      return;
+    }
+
+    // Tampon d'encre neutre et chaleureux
+    this.tone(ctx, {
+      freq: 250,
+      glideTo: 375,
+      start: now,
+      duration: 0.065,
+      peak: 0.055,
+      type: 'sine',
+    });
+  }
+
+  /**
+   * Relais 2v2 : double-toc boisé discret et clair qui signale que le tour
+   * revient enfin au joueur.
+   */
+  public playTurnRelay(): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const knocks = [
+      { offset: 0, freq: 440, glideTo: 415, filterFreq: 1450, noisePeak: 0.045, bodyPeak: 0.068, ringPeak: 0.035, ringDuration: 0.095 },
+      { offset: 0.095, freq: 587.33, glideTo: 560, filterFreq: 1720, noisePeak: 0.052, bodyPeak: 0.075, ringPeak: 0.042, ringDuration: 0.13 },
+    ];
+
+    knocks.forEach((knock) => {
+      const start = now + knock.offset;
+
+      const noise = ctx.createBufferSource();
+      noise.buffer = this.getNoiseBuffer(ctx);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(knock.filterFreq, start);
+      filter.Q.setValueAtTime(3.0, start);
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(knock.noisePeak, start);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, start + 0.025);
+
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start(start);
+
+      this.tone(ctx, {
+        freq: knock.freq,
+        glideTo: knock.glideTo,
+        start,
+        duration: 0.06,
+        peak: knock.bodyPeak,
+        type: 'triangle',
+      });
+      this.tone(ctx, {
+        freq: knock.freq,
+        start: start + 0.003,
+        duration: knock.ringDuration,
+        peak: knock.ringPeak,
+        type: 'sine',
+      });
+    });
+  }
+
+  /** Défi du jour résolu : arpège d'atelier lumineux à 4 notes. */
+  public playDailySolved(): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const notes = [587.33, 739.99, 880.0, 1174.66];
+
+    notes.forEach((freq, index) => {
+      const start = now + index * 0.085;
+      const isLast = index === notes.length - 1;
+      this.tone(ctx, {
+        freq,
+        start,
+        duration: isLast ? 0.56 : 0.28,
+        peak: isLast ? 0.068 : 0.056,
+        type: 'triangle',
+      });
+      this.tone(ctx, {
+        freq: freq * 2,
+        start: start + 0.008,
+        duration: isLast ? 0.48 : 0.2,
+        peak: 0.016,
+        type: 'sine',
+      });
+    });
+
+    // Assise grave lumineuse sur la dernière note
+    this.tone(ctx, {
+      freq: 293.66,
+      start: now + 0.255,
+      duration: 0.6,
+      peak: 0.045,
+      type: 'sine',
     });
   }
 
