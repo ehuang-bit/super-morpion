@@ -124,13 +124,121 @@ export function isValidThemeId(value: string | null): value is ThemeId {
   );
 }
 
-export function applyThemeToDocument(theme: ThemeId): void {
+export interface ThemeTransitionOrigin {
+  x: number;
+  y: number;
+}
+
+interface ViewTransitionLike {
+  ready: Promise<void>;
+  finished: Promise<void>;
+  skipTransition?: () => void;
+}
+
+type DocumentWithTransition = Document & {
+  startViewTransition?: (callback: () => void) => ViewTransitionLike;
+};
+
+let activeTransition: ViewTransitionLike | null = null;
+let fadeTimer: number | null = null;
+
+export function getOriginFromElement(el: HTMLElement | null | undefined): ThemeTransitionOrigin | undefined {
+  if (!el || typeof window === 'undefined') return undefined;
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return undefined;
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+export function applyThemeToDocument(
+  theme: ThemeId,
+  origin?: ThemeTransitionOrigin,
+  onSyncCommit?: () => void,
+): void {
   const root = document.documentElement;
-  root.classList.add('no-transitions');
-  root.setAttribute('data-theme', theme);
-  requestAnimationFrame(() => {
+  const reduced =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Chargement initial ou animations réduites : changement immédiat sans transition
+  if (!origin || reduced) {
+    root.classList.add('no-transitions');
+    root.setAttribute('data-theme', theme);
+    onSyncCommit?.();
     requestAnimationFrame(() => {
-      root.classList.remove('no-transitions');
+      requestAnimationFrame(() => {
+        root.classList.remove('no-transitions');
+      });
     });
-  });
+    return;
+  }
+
+  const doc = document as DocumentWithTransition;
+  if (typeof doc.startViewTransition === 'function') {
+    try {
+      activeTransition?.skipTransition?.();
+    } catch {
+      // Transition déjà terminée
+    }
+    try {
+      root.classList.remove('theme-fading');
+      root.classList.add('theme-revealing');
+      const transition = doc.startViewTransition(() => {
+        root.setAttribute('data-theme', theme);
+        onSyncCommit?.();
+      });
+      activeTransition = transition;
+      const x = Math.max(0, Math.min(window.innerWidth, origin.x));
+      const y = Math.max(0, Math.min(window.innerHeight, origin.y));
+      const endRadius = Math.hypot(
+        Math.max(x, window.innerWidth - x),
+        Math.max(y, window.innerHeight - y),
+      );
+      transition.ready
+        .then(() => {
+          root.animate(
+            {
+              clipPath: [
+                `circle(0px at ${x}px ${y}px)`,
+                `circle(${endRadius}px at ${x}px ${y}px)`,
+              ],
+            },
+            {
+              duration: 560,
+              easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+              pseudoElement: '::view-transition-new(root)',
+            },
+          );
+        })
+        .catch(() => {
+          // Repli silencieux si le navigateur annule la transition
+        });
+      transition.finished
+        .catch(() => {})
+        .finally(() => {
+          if (activeTransition === transition) {
+            activeTransition = null;
+          }
+          root.classList.remove('theme-revealing');
+        });
+      return;
+    } catch {
+      root.classList.remove('theme-revealing');
+    }
+  }
+
+  // Repli si View Transitions API indisponible : fondu doux des couleurs
+  if (fadeTimer !== null) {
+    window.clearTimeout(fadeTimer);
+  }
+  root.classList.add('theme-fading');
+  root.setAttribute('data-theme', theme);
+  onSyncCommit?.();
+  fadeTimer = window.setTimeout(() => {
+    root.classList.remove('theme-fading');
+    fadeTimer = null;
+  }, 420);
 }

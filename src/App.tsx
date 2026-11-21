@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { getEloTier } from '@shared/elo';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
@@ -30,7 +31,11 @@ import { useAuth } from './hooks/useAuth';
 import { useClockTick } from './hooks/useClockTick';
 import { useOnlineGame } from './hooks/useOnlineGame';
 import type { BoardPreferences } from './types/boardPrefs';
-import { applyThemeToDocument, type ThemeId } from './types/theme';
+import {
+  applyThemeToDocument,
+  type ThemeId,
+  type ThemeTransitionOrigin,
+} from './types/theme';
 import { normalizeRoomCode } from './utils/format';
 import { haptics } from './utils/haptics';
 import { soundEngine } from './utils/soundEngine';
@@ -328,12 +333,23 @@ export function App() {
     savePseudo(value);
   }, []);
 
-  const handleChangeTheme = useCallback((nextTheme: ThemeId) => {
-    setTheme(nextTheme);
-    saveTheme(nextTheme);
-    applyThemeToDocument(nextTheme);
-    haptics.tap();
-  }, []);
+  const handleChangeTheme = useCallback(
+    (nextTheme: ThemeId, origin?: ThemeTransitionOrigin) => {
+      saveTheme(nextTheme);
+      soundEngine.playThemeSwitch();
+      haptics.tap();
+      const resolvedOrigin = origin ?? {
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      };
+      applyThemeToDocument(nextTheme, resolvedOrigin, () => {
+        flushSync(() => {
+          setTheme(nextTheme);
+        });
+      });
+    },
+    [],
+  );
 
   const handleChangeBoardPrefs = useCallback((next: BoardPreferences) => {
     setBoardPrefs(next);

@@ -249,6 +249,33 @@
   transition: none !important;
 }
 
+.theme-revealing::view-transition-old(root),
+.theme-revealing::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+.theme-revealing::view-transition-old(root) {
+  z-index: 1;
+}
+
+.theme-revealing::view-transition-new(root) {
+  z-index: 9999;
+}
+
+.theme-fading,
+.theme-fading *,
+.theme-fading *::before,
+.theme-fading *::after {
+  transition:
+    background-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    fill 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 360ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
 @layer base {
   html,
   body,

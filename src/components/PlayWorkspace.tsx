@@ -34,7 +34,12 @@ import {
 } from 'lucide-react';
 import type { ConnectionStatus } from '../hooks/useOnlineGame';
 import type { BoardPreferences } from '../types/boardPrefs';
-import { THEMES, type ThemeId } from '../types/theme';
+import {
+  THEMES,
+  getOriginFromElement,
+  type ThemeId,
+  type ThemeTransitionOrigin,
+} from '../types/theme';
 import { normalizeRoomCode } from '../utils/format';
 import { haptics } from '../utils/haptics';
 import { CHIP_SPRING } from '../utils/motion';
@@ -56,7 +61,7 @@ interface PlayWorkspaceProps {
     tier: string;
   };
   theme: ThemeId;
-  onChangeTheme: (theme: ThemeId) => void;
+  onChangeTheme: (theme: ThemeId, origin?: ThemeTransitionOrigin) => void;
   boardPrefs: BoardPreferences;
   connected: boolean;
   connectionStatus: ConnectionStatus;
@@ -914,50 +919,59 @@ export function PlayWorkspace({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-4 gap-1.5">
-                  {THEMES.map((item) => {
-                    const selected = item.id === theme;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => onChangeTheme(item.id)}
-                        aria-pressed={selected}
-                        title={`${item.label} — ${item.description}`}
-                        className="tactile-btn rounded-[9px] px-2 py-1.5 flex flex-col items-center gap-1 text-center"
-                        style={{
-                          backgroundColor: selected
-                            ? 'var(--bg-recessed)'
-                            : 'var(--bg-surface)',
-                          color: 'var(--text-primary)',
-                          border: `1.5px solid ${
-                            selected
-                              ? 'var(--accent-active)'
-                              : 'var(--border-cell)'
-                          }`,
-                        }}
-                      >
-                        <span className="inline-flex items-center -space-x-1">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border border-black/15"
-                            style={{ backgroundColor: item.swatches.canvas }}
-                          />
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border border-black/15"
-                            style={{ backgroundColor: item.swatches.x }}
-                          />
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border border-black/15"
-                            style={{ backgroundColor: item.swatches.o }}
-                          />
-                        </span>
-                        <span className="text-[11px] font-semibold truncate w-full">
-                          {item.label.split(' ')[0]}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <LayoutGroup id="theme-home">
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {THEMES.map((item) => {
+                      const selected = item.id === theme;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={(e) =>
+                            onChangeTheme(item.id, getOriginFromElement(e.currentTarget))
+                          }
+                          aria-pressed={selected}
+                          title={`${item.label} — ${item.description}`}
+                          className="tactile-btn relative rounded-[9px] px-2 py-1.5 flex flex-col items-center gap-1 text-center"
+                          style={{
+                            backgroundColor: selected
+                              ? 'var(--bg-recessed)'
+                              : 'var(--bg-surface)',
+                            color: 'var(--text-primary)',
+                            border: '1.5px solid var(--border-cell)',
+                          }}
+                        >
+                          {selected && (
+                            <motion.span
+                              layoutId="theme-home-ring"
+                              transition={CHIP_SPRING}
+                              aria-hidden="true"
+                              className="pointer-events-none absolute -inset-[1.5px] rounded-[9px]"
+                              style={{ border: '1.5px solid var(--accent-active)' }}
+                            />
+                          )}
+                          <span className="relative z-10 inline-flex items-center -space-x-1">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-black/15"
+                              style={{ backgroundColor: item.swatches.canvas }}
+                            />
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-black/15"
+                              style={{ backgroundColor: item.swatches.x }}
+                            />
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-black/15"
+                              style={{ backgroundColor: item.swatches.o }}
+                            />
+                          </span>
+                          <span className="relative z-10 text-[11px] font-semibold truncate w-full">
+                            {item.label.split(' ')[0]}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </LayoutGroup>
               </div>
             </>
           )}

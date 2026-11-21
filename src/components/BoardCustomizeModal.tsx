@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { RotateCcw, X } from 'lucide-react';
 import {
   BOARD_MATERIALS,
@@ -8,15 +8,20 @@ import {
   PIECE_STYLES,
   type BoardPreferences,
 } from '../types/boardPrefs';
-import { THEMES, type ThemeId } from '../types/theme';
-import { MODAL_TRANSITION } from '../utils/motion';
+import {
+  THEMES,
+  getOriginFromElement,
+  type ThemeId,
+  type ThemeTransitionOrigin,
+} from '../types/theme';
+import { CHIP_SPRING, MODAL_TRANSITION } from '../utils/motion';
 import { SymbolMark } from './Symbols';
 
 interface BoardCustomizeModalProps {
   open: boolean;
   onClose: () => void;
   theme: ThemeId;
-  onChangeTheme: (theme: ThemeId) => void;
+  onChangeTheme: (theme: ThemeId, origin?: ThemeTransitionOrigin) => void;
   boardPrefs: BoardPreferences;
   onChangeBoardPrefs: (next: BoardPreferences) => void;
 }
@@ -214,49 +219,60 @@ export function BoardCustomizeModal({
               >
                 Palette de couleurs
               </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {THEMES.map((item) => {
-                  const selected = item.id === theme;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onChangeTheme(item.id)}
-                      aria-pressed={selected}
-                      className="tactile-btn rounded-[10px] px-2.5 py-2 text-left flex items-center gap-2"
-                      style={{
-                        backgroundColor: selected
-                          ? 'var(--bg-recessed)'
-                          : 'var(--bg-surface)',
-                        color: 'var(--text-primary)',
-                        border: `1.5px solid ${
-                          selected ? 'var(--accent-active)' : 'var(--border-cell)'
-                        }`,
-                      }}
-                    >
-                      <span className="inline-flex items-center -space-x-1 shrink-0">
-                        <span
-                          className="w-3 h-3 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.canvas }}
-                        />
-                        <span
-                          className="w-3 h-3 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.x }}
-                        />
-                        <span
-                          className="w-3 h-3 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.o }}
-                        />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-xs font-semibold truncate">
-                          {item.label}
+              <LayoutGroup id="theme-modal">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {THEMES.map((item) => {
+                    const selected = item.id === theme;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={(e) =>
+                          onChangeTheme(item.id, getOriginFromElement(e.currentTarget))
+                        }
+                        aria-pressed={selected}
+                        className="tactile-btn relative rounded-[10px] px-2.5 py-2 text-left flex items-center gap-2"
+                        style={{
+                          backgroundColor: selected
+                            ? 'var(--bg-recessed)'
+                            : 'var(--bg-surface)',
+                          color: 'var(--text-primary)',
+                          border: '1.5px solid var(--border-cell)',
+                        }}
+                      >
+                        {selected && (
+                          <motion.span
+                            layoutId="theme-modal-ring"
+                            transition={CHIP_SPRING}
+                            aria-hidden="true"
+                            className="pointer-events-none absolute -inset-[1.5px] rounded-[10px]"
+                            style={{ border: '1.5px solid var(--accent-active)' }}
+                          />
+                        )}
+                        <span className="relative z-10 inline-flex items-center -space-x-1 shrink-0">
+                          <span
+                            className="w-3 h-3 rounded-full border border-black/15"
+                            style={{ backgroundColor: item.swatches.canvas }}
+                          />
+                          <span
+                            className="w-3 h-3 rounded-full border border-black/15"
+                            style={{ backgroundColor: item.swatches.x }}
+                          />
+                          <span
+                            className="w-3 h-3 rounded-full border border-black/15"
+                            style={{ backgroundColor: item.swatches.o }}
+                          />
                         </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                        <span className="relative z-10 min-w-0">
+                          <span className="block text-xs font-semibold truncate">
+                            {item.label}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </LayoutGroup>
             </div>
 
             {/* 2. Style des pièces */}
@@ -485,8 +501,8 @@ export function BoardCustomizeModal({
             <div className="flex items-center justify-between gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => {
-                  onChangeTheme('atelier');
+                onClick={(e) => {
+                  onChangeTheme('atelier', getOriginFromElement(e.currentTarget));
                   onChangeBoardPrefs({ ...DEFAULT_BOARD_PREFS });
                 }}
                 className="tactile-btn inline-flex items-center gap-1.5 rounded-[9px] px-3 py-2 text-xs font-medium"

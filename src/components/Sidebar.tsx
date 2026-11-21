@@ -1,5 +1,6 @@
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import type { AuthUser } from '@shared/protocol';
+import { BrandLogo } from './BrandLogo';
 import {
   BarChart3,
   BookOpen,
@@ -85,71 +86,10 @@ export function Sidebar({
               onSelectTab('play');
               closeMobile?.();
             }}
-            className="flex items-center gap-2.5 text-left group"
+            aria-label="Super Morpion"
+            className="flex items-center text-left group min-w-0"
           >
-            <div
-              className="w-9 h-9 rounded-[10px] p-1.5 shrink-0 transition-transform duration-150 group-hover:scale-[1.03]"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-main)',
-              }}
-              aria-hidden="true"
-            >
-              <svg viewBox="0 0 32 32" className="w-full h-full">
-                <path
-                  d="M11 3v26M21 3v26M3 11h26M3 21h26"
-                  stroke="var(--border-strong)"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M5.5 5.5l3.5 3.5M9 5.5l-3.5 3.5"
-                  stroke="var(--x-color)"
-                  strokeWidth="2.1"
-                  strokeLinecap="round"
-                />
-                <circle
-                  cx="16"
-                  cy="16"
-                  r="2.4"
-                  fill="none"
-                  stroke="var(--o-color)"
-                  strokeWidth="2.1"
-                />
-                <rect
-                  x="22.5"
-                  y="22.5"
-                  width="6.5"
-                  height="6.5"
-                  rx="1.5"
-                  fill="var(--accent-active-bg)"
-                  stroke="var(--accent-active)"
-                  strokeWidth="1.6"
-                />
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <span
-                className="block text-sm font-bold tracking-tight leading-tight truncate"
-                style={{ color: 'var(--text-primary)' }}
-              >
-                Super Morpion
-              </span>
-              <span
-                className="flex items-center gap-1.5 text-[11px] leading-tight mt-0.5"
-                style={{ color: 'var(--text-muted)' }}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    backgroundColor: connected
-                      ? 'var(--x-color)'
-                      : 'var(--danger-color)',
-                  }}
-                />
-                <span>1v1 en ligne</span>
-              </span>
-            </div>
+            <BrandLogo variant="sidebar" connected={connected} />
           </button>
 
           {closeMobile && (
@@ -419,17 +359,10 @@ export function Sidebar({
           <button
             type="button"
             onClick={() => onSelectTab('play')}
-            className="inline-flex items-center gap-2 min-h-[44px] py-2 text-sm font-bold tracking-tight truncate"
-            style={{ color: 'var(--text-primary)' }}
+            aria-label="Super Morpion"
+            className="inline-flex items-center min-h-[44px] py-1.5 group min-w-0"
           >
-            <span
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{
-                backgroundColor: connected ? 'var(--x-color)' : 'var(--danger-color)',
-              }}
-              aria-hidden="true"
-            />
-            <span>Super Morpion</span>
+            <BrandLogo variant="compact" connected={connected} />
           </button>
         </div>
 

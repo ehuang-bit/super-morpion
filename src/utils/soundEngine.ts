@@ -361,6 +361,15 @@ class SoundEngine {
       osc.stop(start + 0.26);
     });
   }
+
+  /** Petit accord doux au changement de palette du plateau. */
+  public playThemeSwitch(): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    this.tone(ctx, { freq: 523.25, start: now, duration: 0.14, peak: 0.032 });
+    this.tone(ctx, { freq: 783.99, start: now + 0.045, duration: 0.2, peak: 0.03 });
+  }
 }
 
 export const soundEngine = new SoundEngine();
