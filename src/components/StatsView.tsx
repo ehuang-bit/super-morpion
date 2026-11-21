@@ -11,12 +11,14 @@ import {
   type EndReason,
   type MatchHistoryItem,
   type PlayerStatsPayload,
+  type TimeControl,
 } from '@shared/protocol';
 import {
   ArrowLeft,
   Award,
   Flame,
   LogIn,
+  LogOut,
   RefreshCw,
   Swords,
   TrendingUp,
@@ -39,7 +41,14 @@ interface StatsViewProps {
   onRefresh: () => void;
   onBackToPlay: () => void;
   onOpenAuth: () => void;
+  onLogout?: () => void;
 }
+
+const TIME_CONTROL_ORDER: readonly TimeControl[] = [
+  'unlimited',
+  'rapid',
+  'blitz',
+];
 
 const END_REASON_LABELS: Record<EndReason, string> = {
   alignment: 'Alignement',
@@ -78,6 +87,7 @@ export function StatsView({
   onRefresh,
   onBackToPlay,
   onOpenAuth,
+  onLogout,
 }: StatsViewProps) {
   const profile = stats?.profile ?? playerElo.profile;
   const tier = stats?.tier ?? playerElo.tier;
@@ -120,22 +130,26 @@ export function StatsView({
       )
     : 100;
 
-  // Build SVG sparkline coordinates
+  // Coordonnées du graphique SVG d'évolution Elo
   const ratings = eloHistory.map((p) => p.rating);
-  const minRating = Math.min(...ratings, 1150) - 20;
-  const maxRating = Math.max(...ratings, 1250) + 20;
+  const observedMin = Math.min(...ratings);
+  const observedMax = Math.max(...ratings);
+  const minRating = Math.min(observedMin, 1150) - 20;
+  const maxRating = Math.max(observedMax, 1250) + 20;
+  const midRating = Math.round((minRating + maxRating) / 2);
   const ratingSpan = Math.max(40, maxRating - minRating);
-  const chartW = 560;
-  const chartH = 140;
-  const padX = 18;
+  const chartW = 440;
+  const chartH = 200;
+  const padLeft = 42;
+  const padRight = 14;
   const padY = 18;
+  const plotW = chartW - padLeft - padRight;
 
   const points = eloHistory.map((pt, idx) => {
     const x =
       eloHistory.length === 1
-        ? chartW / 2
-        : padX +
-          (idx / (eloHistory.length - 1)) * (chartW - padX * 2);
+        ? padLeft + plotW / 2
+        : padLeft + (idx / (eloHistory.length - 1)) * plotW;
     const y =
       chartH -
       padY -
@@ -143,13 +157,39 @@ export function StatsView({
     return { x, y, rating: pt.rating };
   });
 
-  const polylinePoints = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const polylinePoints = points
+    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(' ');
   const areaPath =
     points.length > 1
       ? `M ${points[0].x.toFixed(1)} ${(chartH - padY).toFixed(1)} L ` +
         points.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ') +
         ` L ${points[points.length - 1].x.toFixed(1)} ${(chartH - padY).toFixed(1)} Z`
       : '';
+
+  // Répartition par cadence calculée sur l'historique des duels
+  const cadenceStats = TIME_CONTROL_ORDER.map((timeControl) => {
+    let wins = 0;
+    let draws = 0;
+    let losses = 0;
+    for (const match of matches) {
+      if (match.timeControl !== timeControl) continue;
+      if (match.result === 'win') wins++;
+      else if (match.result === 'draw') draws++;
+      else losses++;
+    }
+    const total = wins + draws + losses;
+    const winPct = total > 0 ? Math.round((wins / total) * 100) : null;
+    return {
+      timeControl,
+      label: TIME_CONTROL_LABELS[timeControl],
+      total,
+      wins,
+      draws,
+      losses,
+      winPct,
+    };
+  });
 
   const displayName = user?.username || pseudo.trim() || 'Invité';
 
@@ -188,7 +228,23 @@ export function StatsView({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {user && onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="tactile-btn lg:hidden inline-flex items-center gap-1.5 rounded-[10px] px-3 py-2 text-xs font-semibold"
+              style={{
+                backgroundColor: 'var(--bg-board)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-main)',
+              }}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Déconnexion</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onRefresh}
@@ -483,14 +539,14 @@ export function StatsView({
       <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr] gap-4">
         {/* SVG Elo Curve */}
         <section
-          className="rounded-[16px] p-4 sm:p-5 flex flex-col justify-between gap-3"
+          className="rounded-[16px] p-4 sm:p-5 flex flex-col gap-4"
           style={{
             backgroundColor: 'var(--bg-board)',
             border: '1px solid var(--border-main)',
             boxShadow: 'var(--shadow-card)',
           }}
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div>
               <h2
                 className="text-sm font-bold"
@@ -506,10 +562,10 @@ export function StatsView({
               </p>
             </div>
             <span
-              className="font-mono text-xs font-semibold tabular-nums"
+              className="font-mono text-xs font-semibold tabular-nums shrink-0"
               style={{ color: 'var(--text-muted)' }}
             >
-              Min {Math.round(minRating + 20)} · Max {Math.round(maxRating - 20)}
+              Min {Math.round(observedMin)} · Max {Math.round(observedMax)}
             </span>
           </div>
 
@@ -522,31 +578,63 @@ export function StatsView({
           >
             <svg
               viewBox={`0 0 ${chartW} ${chartH}`}
-              className="w-full h-36 overflow-visible"
+              className="w-full h-44 sm:h-48 overflow-visible"
               role="img"
               aria-label="Graphique de progression Elo"
             >
-              {/* Reference lines */}
+              {/* Repères de valeur discrets (max / milieu / min) */}
+              <text
+                x={padLeft - 8}
+                y={padY + 3.5}
+                textAnchor="end"
+                fontSize="10.5"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fill="var(--text-muted)"
+              >
+                {Math.round(maxRating)}
+              </text>
+              <text
+                x={padLeft - 8}
+                y={chartH / 2 + 3.5}
+                textAnchor="end"
+                fontSize="10.5"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fill="var(--text-muted)"
+              >
+                {midRating}
+              </text>
+              <text
+                x={padLeft - 8}
+                y={chartH - padY + 3.5}
+                textAnchor="end"
+                fontSize="10.5"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fill="var(--text-muted)"
+              >
+                {Math.round(minRating)}
+              </text>
+
+              {/* Lignes de repère horizontales */}
               <line
-                x1={padX}
+                x1={padLeft}
                 y1={padY}
-                x2={chartW - padX}
+                x2={chartW - padRight}
                 y2={padY}
                 stroke="var(--border-cell)"
                 strokeDasharray="3 3"
               />
               <line
-                x1={padX}
+                x1={padLeft}
                 y1={chartH / 2}
-                x2={chartW - padX}
+                x2={chartW - padRight}
                 y2={chartH / 2}
                 stroke="var(--border-cell)"
                 strokeDasharray="3 3"
               />
               <line
-                x1={padX}
+                x1={padLeft}
                 y1={chartH - padY}
-                x2={chartW - padX}
+                x2={chartW - padRight}
                 y2={chartH - padY}
                 stroke="var(--border-main)"
               />
@@ -602,6 +690,126 @@ export function StatsView({
                 />
               ))}
             </svg>
+          </div>
+
+          {/* Répartition par cadence */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <h3
+                className="text-xs font-bold"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                Répartition par cadence
+              </h3>
+              <span
+                className="text-[11px]"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {matches.length === 0
+                  ? 'Aucun duel enregistré'
+                  : matches.length === 1
+                    ? 'Sur le dernier duel'
+                    : `Sur les ${matches.length} derniers duels`}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {cadenceStats.map((item) => {
+                const winWidth =
+                  item.total > 0 ? (item.wins / item.total) * 100 : 0;
+                const drawWidth =
+                  item.total > 0 ? (item.draws / item.total) * 100 : 0;
+                const lossWidth =
+                  item.total > 0 ? (item.losses / item.total) * 100 : 0;
+
+                return (
+                  <div
+                    key={item.timeControl}
+                    className="rounded-[11px] p-2 sm:p-2.5 flex flex-col gap-1.5 min-w-0"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      border: '1px solid var(--border-cell)',
+                    }}
+                  >
+                    <span
+                      className="text-[11px] font-bold truncate"
+                      style={{ color: 'var(--text-primary)' }}
+                      title={item.label}
+                    >
+                      {item.label}
+                    </span>
+
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-1 gap-y-0.5">
+                      <span
+                        className="font-mono text-sm sm:text-base font-bold tabular-nums leading-none"
+                        style={{
+                          color:
+                            item.winPct !== null
+                              ? 'var(--x-color)'
+                              : 'var(--text-muted)',
+                        }}
+                      >
+                        {item.winPct !== null ? `${item.winPct}%` : '—'}
+                      </span>
+                      <span
+                        className="font-mono text-[10px] tabular-nums shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {item.total} duel{item.total > 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    {/* Barre de proportion V / N / D */}
+                    <div
+                      className="h-1.5 w-full rounded-full overflow-hidden flex"
+                      style={{
+                        backgroundColor:
+                          item.total > 0
+                            ? 'var(--bg-board)'
+                            : 'var(--border-cell)',
+                        opacity: item.total > 0 ? 1 : 0.65,
+                      }}
+                      aria-hidden="true"
+                    >
+                      {item.wins > 0 && (
+                        <span
+                          className="h-full"
+                          style={{
+                            width: `${winWidth}%`,
+                            backgroundColor: 'var(--x-color)',
+                          }}
+                        />
+                      )}
+                      {item.draws > 0 && (
+                        <span
+                          className="h-full"
+                          style={{
+                            width: `${drawWidth}%`,
+                            backgroundColor: 'var(--accent-active)',
+                          }}
+                        />
+                      )}
+                      {item.losses > 0 && (
+                        <span
+                          className="h-full"
+                          style={{
+                            width: `${lossWidth}%`,
+                            backgroundColor: 'var(--border-cell)',
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    <span
+                      className="font-mono text-[10px] tabular-nums leading-tight"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {item.wins}V · {item.draws}N · {item.losses}D
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
 

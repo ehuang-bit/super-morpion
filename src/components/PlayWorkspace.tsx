@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { LayoutGroup, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { formatRating, type EloProfile } from '@shared/elo';
 import {
   BOARD_COORDS,
@@ -24,18 +24,19 @@ import {
   ChevronRight,
   Clock,
   GraduationCap,
+  KeyRound,
   Link2,
-  LogIn,
   MonitorSmartphone,
   RotateCcw,
   Swords,
   UserCheck,
+  X,
 } from 'lucide-react';
 import type { ConnectionStatus } from '../hooks/useOnlineGame';
 import type { BoardPreferences } from '../types/boardPrefs';
-import { normalizeRoomCode } from '../utils/format';
+import { formatElapsedSeconds, normalizeRoomCode } from '../utils/format';
 import { haptics } from '../utils/haptics';
-import { CHIP_SPRING } from '../utils/motion';
+import { CHIP_SPRING, SMOOTH_EASE } from '../utils/motion';
 import { soundEngine } from '../utils/soundEngine';
 import { getTutorialSeen, saveTutorialSeen } from '../utils/storage';
 import { GlobalBoard } from './GlobalBoard';
@@ -59,6 +60,11 @@ interface PlayWorkspaceProps {
   isBusy: boolean;
   error: string | null;
   lobby: LobbyStats | null;
+  matchmaking: {
+    searching: boolean;
+    timeControl: TimeControl | null;
+    queueSize: number;
+  };
   waitingSnapshot: RoomSnapshot | null;
   routeRoomCode: string | null;
   peekInfo: RoomPeekInfo | null;
@@ -66,9 +72,9 @@ interface PlayWorkspaceProps {
   onCreateRoom: () => void;
   onJoinCode: (code: string) => void;
   onJoinMatchmaking: () => void;
+  onCancelMatchmaking: () => void;
   onCancelWaitingOrPrompt: () => void;
   onOpenStats: () => void;
-  onOpenAuth: () => void;
   /** Incrémenté pour lancer le tutoriel depuis l'extérieur (fenêtre des règles). */
   tutorialRequest: number;
 }
@@ -110,6 +116,7 @@ export function PlayWorkspace({
   isBusy,
   error,
   lobby,
+  matchmaking,
   waitingSnapshot,
   routeRoomCode,
   peekInfo,
@@ -117,12 +124,14 @@ export function PlayWorkspace({
   onCreateRoom,
   onJoinCode,
   onJoinMatchmaking,
+  onCancelMatchmaking,
   onCancelWaitingOrPrompt,
   onOpenStats,
-  onOpenAuth,
   tutorialRequest,
 }: PlayWorkspaceProps) {
   const [joinCode, setJoinCode] = useState('');
+  const [showJoinCode, setShowJoinCode] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const [sandboxState, setSandboxState] = useState<GameState>(() =>
     createInitialState('X'),
   );
@@ -172,6 +181,7 @@ export function PlayWorkspace({
   );
 
   const boardSectionRef = useRef<HTMLElement>(null);
+  const joinInputRef = useRef<HTMLInputElement>(null);
 
   const startTutorial = useCallback(() => {
     saveTutorialSeen();
@@ -206,6 +216,27 @@ export function PlayWorkspace({
     }
   }, [tutorialRequest, startTutorial]);
 
+  // Chrono local tant que la recherche d'adversaire est active
+  useEffect(() => {
+    if (!matchmaking.searching) {
+      setElapsed(0);
+      return;
+    }
+    setShowJoinCode(false);
+    const start = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [matchmaking.searching]);
+
+  // Focus automatique du champ de code à l'ouverture
+  useEffect(() => {
+    if (showJoinCode && !matchmaking.searching) {
+      joinInputRef.current?.focus();
+    }
+  }, [showJoinCode, matchmaking.searching]);
+
   // Progression du tutoriel au fil des coups joués sur le plateau d'essai
   useEffect(() => {
     if (tutorial === null || tutorial === 'done') return;
@@ -239,6 +270,7 @@ export function PlayWorkspace({
 
   const handleJoinSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (matchmaking.searching) return;
     const cleaned = normalizeRoomCode(joinCode);
     if (cleaned.length === 6) {
       onJoinCode(cleaned);
@@ -417,9 +449,11 @@ export function PlayWorkspace({
                       type="button"
                       onClick={() => {
                         endTutorial();
-                        if (canLaunch) onJoinMatchmaking();
+                        if (canLaunch && !matchmaking.searching) {
+                          onJoinMatchmaking();
+                        }
                       }}
-                      disabled={!canLaunch}
+                      disabled={!canLaunch || matchmaking.searching}
                       className="tactile-btn rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
                       style={{
                         backgroundColor: 'var(--btn-primary-bg)',
@@ -450,7 +484,7 @@ export function PlayWorkspace({
               </div>
             </motion.div>
           ) : (
-            /* Top Opponent / Readiness Strip */
+            /* Bandeau d'état au-dessus du plateau d'essai */
             <div
               className="w-full max-w-[540px] rounded-[12px] px-3 py-2 flex items-center justify-between gap-2"
               style={{
@@ -476,7 +510,7 @@ export function PlayWorkspace({
                 </span>
               </div>
 
-              {hasSandboxMoves && !waitingSnapshot ? (
+              {hasSandboxMoves && !waitingSnapshot && (
                 <button
                   type="button"
                   onClick={handleResetSandbox}
@@ -490,16 +524,6 @@ export function PlayWorkspace({
                   <RotateCcw className="w-3 h-3" />
                   <span>Réinitialiser</span>
                 </button>
-              ) : (
-                <span
-                  className="shrink-0 rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold"
-                  style={{
-                    backgroundColor: 'var(--accent-active-bg)',
-                    color: 'var(--accent-active-text)',
-                  }}
-                >
-                  {TIME_CONTROL_LABELS[timeControl]}
-                </span>
               )}
             </div>
           )}
@@ -623,7 +647,7 @@ export function PlayWorkspace({
                     />
                   </button>
 
-                  {user ? (
+                  {user && (
                     <span
                       className="shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold"
                       style={{
@@ -634,20 +658,6 @@ export function PlayWorkspace({
                       <UserCheck className="w-3 h-3" />
                       <span className="max-w-[92px] truncate">{user.username}</span>
                     </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={onOpenAuth}
-                      className="tactile-btn shrink-0 hidden lg:inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
-                      style={{
-                        backgroundColor: 'var(--bg-board)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border-strong)',
-                      }}
-                    >
-                      <LogIn className="w-3.5 h-3.5" />
-                      <span>Connexion</span>
-                    </button>
                   )}
                 </div>
 
@@ -678,8 +688,12 @@ export function PlayWorkspace({
                   </div>
                 )}
 
-                {/* Time Control Selector */}
-                <div>
+                {/* Sélecteur de cadence */}
+                <div
+                  className={`transition-opacity ${
+                    matchmaking.searching ? 'opacity-50' : ''
+                  }`}
+                >
                   <span
                     className="inline-flex items-center gap-1.5 text-xs font-semibold mb-1.5"
                     style={{ color: 'var(--text-secondary)' }}
@@ -698,6 +712,7 @@ export function PlayWorkspace({
                       }}
                       role="radiogroup"
                       aria-label="Cadence de la pendule"
+                      aria-disabled={matchmaking.searching}
                     >
                       {CADENCES.map((cadence) => {
                         const selected = timeControl === cadence;
@@ -707,8 +722,9 @@ export function PlayWorkspace({
                             type="button"
                             role="radio"
                             aria-checked={selected}
+                            disabled={matchmaking.searching}
                             onClick={() => onChangeTimeControl(cadence)}
-                            className="tactile-btn relative rounded-[7px] px-1.5 py-2 text-xs font-semibold leading-tight text-center"
+                            className="tactile-btn relative rounded-[7px] px-1.5 py-2 text-xs font-semibold leading-tight text-center disabled:cursor-not-allowed"
                             style={{
                               color: selected
                                 ? 'var(--text-primary)'
@@ -750,40 +766,111 @@ export function PlayWorkspace({
                   </div>
                 )}
 
-                {/* Action principale : trouver un adversaire */}
-                <button
-                  type="button"
-                  onClick={onJoinMatchmaking}
-                  disabled={!canLaunch}
-                  className="tactile-btn cta-primary w-full rounded-[14px] px-4 py-3.5 flex items-center justify-between gap-3 disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'var(--btn-primary-bg)',
-                    color: 'var(--btn-primary-text)',
-                  }}
-                >
-                  <span className="inline-flex items-center gap-3 min-w-0">
-                    <span
-                      className="inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0"
+                {/* Action principale : trouver un adversaire ou recherche intégrée */}
+                {matchmaking.searching ? (
+                  <motion.div
+                    role="status"
+                    aria-live="polite"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.22, ease: SMOOTH_EASE }}
+                    className="w-full rounded-[14px] p-3.5 flex flex-col gap-2.5"
+                    style={{
+                      backgroundColor: 'var(--accent-active-bg)',
+                      border: '1.5px solid var(--accent-active)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className="inline-flex items-center gap-2 text-sm font-bold min-w-0"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <span className="live-dot" aria-hidden="true" />
+                        <span className="truncate">Recherche d’un adversaire…</span>
+                      </span>
+                      <span
+                        className="shrink-0 font-mono text-xs font-bold tabular-nums rounded-md px-2 py-0.5"
+                        style={{
+                          backgroundColor: 'var(--bg-board)',
+                          color: 'var(--accent-active-text)',
+                          border: '1px solid var(--border-cell)',
+                        }}
+                      >
+                        {formatElapsedSeconds(elapsed)}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5">
+                      <p
+                        className="text-xs font-semibold"
+                        style={{ color: 'var(--accent-active-text)' }}
+                      >
+                        {matchmaking.queueSize > 1
+                          ? `${matchmaking.queueSize} joueurs en file`
+                          : 'En attente d’un joueur'}{' '}
+                        · {TIME_CONTROL_LABELS[matchmaking.timeControl ?? timeControl]}
+                      </p>
+                      <p
+                        className="text-xs leading-snug"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        Échauffe-toi sur le plateau en attendant.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={onCancelMatchmaking}
+                      className="tactile-btn w-full rounded-[10px] px-3 py-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
                       style={{
-                        backgroundColor: 'color-mix(in srgb, currentColor 16%, transparent)',
+                        backgroundColor: 'var(--bg-board)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border-strong)',
                       }}
                     >
-                      <Swords className="w-5 h-5" strokeWidth={1.9} />
-                    </span>
-                    <span className="flex flex-col items-start leading-tight min-w-0">
-                      <span className="text-base font-bold">Trouver un adversaire</span>
-                      <span className="text-xs font-medium opacity-80 truncate max-w-full">
-                        {waitingInQueue > 0
-                          ? `${waitingInQueue} joueur${waitingInQueue > 1 ? 's' : ''} en attente · ${TIME_CONTROL_LABELS[timeControl]}`
-                          : `À ton niveau · ${TIME_CONTROL_LABELS[timeControl]}`}
+                      <X className="w-3.5 h-3.5" strokeWidth={2} />
+                      <span>Annuler</span>
+                    </button>
+                  </motion.div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onJoinMatchmaking}
+                    disabled={!canLaunch}
+                    className="tactile-btn cta-primary w-full rounded-[14px] px-4 py-3.5 flex items-center justify-between gap-3 disabled:opacity-50"
+                    style={{
+                      backgroundColor: 'var(--btn-primary-bg)',
+                      color: 'var(--btn-primary-text)',
+                    }}
+                  >
+                    <span className="inline-flex items-center gap-3 min-w-0">
+                      <span
+                        className="inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, currentColor 16%, transparent)',
+                        }}
+                      >
+                        <Swords className="w-5 h-5" strokeWidth={1.9} />
+                      </span>
+                      <span className="flex flex-col items-start leading-tight min-w-0">
+                        <span className="text-base font-bold">Trouver un adversaire</span>
+                        <span className="text-xs font-medium opacity-80 truncate max-w-full">
+                          {waitingInQueue > 0
+                            ? `${waitingInQueue} joueur${waitingInQueue > 1 ? 's' : ''} en attente · ${TIME_CONTROL_LABELS[timeControl]}`
+                            : `À ton niveau · ${TIME_CONTROL_LABELS[timeControl]}`}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                  <ArrowRight className="cta-arrow w-5 h-5 shrink-0" strokeWidth={2} />
-                </button>
+                    <ArrowRight className="cta-arrow w-5 h-5 shrink-0" strokeWidth={2} />
+                  </button>
+                )}
 
                 {/* Jouer avec un ami */}
-                <div className="flex flex-col gap-2">
+                <div
+                  className={`flex flex-col gap-2 transition-opacity ${
+                    matchmaking.searching ? 'opacity-50' : ''
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     <span
                       className="text-xs font-semibold"
@@ -797,64 +884,106 @@ export function PlayWorkspace({
                     />
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={onCreateRoom}
-                    disabled={!canLaunch}
-                    className="tactile-btn w-full rounded-[11px] px-3.5 py-2.5 text-sm font-semibold flex items-center justify-between gap-2 disabled:opacity-50"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-main)',
-                    }}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <Link2 className="w-4 h-4" strokeWidth={1.85} />
-                      <span>Créer un duel privé</span>
-                    </span>
-                    <span
-                      className="text-xs font-medium inline-flex items-center gap-1"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
-                      <span>Lien & code</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </span>
-                  </button>
-
-                  {/* Join by 6-char room code */}
-                  <form onSubmit={handleJoinSubmit} className="flex gap-2">
-                    <label htmlFor="join-code-input" className="sr-only">
-                      Code du salon à 6 caractères
-                    </label>
-                    <input
-                      id="join-code-input"
-                      type="text"
-                      maxLength={7}
-                      value={joinCode}
-                      onChange={(e) =>
-                        setJoinCode(normalizeRoomCode(e.target.value))
-                      }
-                      placeholder="CODE À 6 CAR."
-                      className="tactile-input flex-1 min-w-0 rounded-[10px] px-3 py-2 font-mono text-sm uppercase tracking-[0.14em]"
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={onCreateRoom}
+                      disabled={!canLaunch || matchmaking.searching}
+                      className={`tactile-btn rounded-[11px] px-2.5 py-2.5 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed ${
+                        matchmaking.searching ? '' : 'disabled:opacity-50'
+                      }`}
                       style={{
                         backgroundColor: 'var(--bg-surface)',
                         color: 'var(--text-primary)',
                         border: '1px solid var(--border-main)',
                       }}
-                    />
+                    >
+                      <Link2 className="w-3.5 h-3.5 shrink-0" strokeWidth={1.9} />
+                      <span>Créer un salon</span>
+                    </button>
+
                     <button
-                      type="submit"
-                      disabled={!canLaunch || normalizedJoin.length !== 6}
-                      className="tactile-btn shrink-0 rounded-[10px] px-3.5 py-2 text-xs font-semibold disabled:opacity-45"
+                      type="button"
+                      onClick={() => setShowJoinCode((prev) => !prev)}
+                      disabled={!canLaunch || matchmaking.searching}
+                      aria-expanded={showJoinCode}
+                      aria-controls="join-code-form"
+                      className={`tactile-btn rounded-[11px] px-2.5 py-2.5 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed ${
+                        matchmaking.searching ? '' : 'disabled:opacity-50'
+                      }`}
                       style={{
-                        backgroundColor: 'var(--bg-recessed)',
+                        backgroundColor: showJoinCode
+                          ? 'var(--bg-recessed)'
+                          : 'var(--bg-surface)',
                         color: 'var(--text-primary)',
-                        border: '1px solid var(--border-strong)',
+                        border: `1px solid ${
+                          showJoinCode ? 'var(--accent-active)' : 'var(--border-main)'
+                        }`,
                       }}
                     >
-                      Rejoindre
+                      <KeyRound className="w-3.5 h-3.5 shrink-0" strokeWidth={1.9} />
+                      <span>Entrer un code</span>
                     </button>
-                  </form>
+                  </div>
+
+                  {/* Champ de code dépliable à la demande */}
+                  <AnimatePresence initial={false}>
+                    {showJoinCode && !matchmaking.searching && (
+                      <motion.form
+                        id="join-code-form"
+                        key="join-code-form"
+                        onSubmit={handleJoinSubmit}
+                        initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
+                        animate={{
+                          height: 'auto',
+                          opacity: 1,
+                          transitionEnd: { overflow: 'visible' },
+                        }}
+                        exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
+                        transition={{ duration: 0.2, ease: SMOOTH_EASE }}
+                      >
+                        <div className="flex gap-2 pt-0.5">
+                          <label htmlFor="join-code-input" className="sr-only">
+                            Code du salon à 6 caractères
+                          </label>
+                          <input
+                            ref={joinInputRef}
+                            id="join-code-input"
+                            type="text"
+                            maxLength={7}
+                            value={joinCode}
+                            onChange={(e) =>
+                              setJoinCode(normalizeRoomCode(e.target.value))
+                            }
+                            placeholder="CODE À 6 CAR."
+                            disabled={matchmaking.searching}
+                            className="tactile-input flex-1 min-w-0 rounded-[10px] px-3 py-2 font-mono text-sm uppercase tracking-[0.14em]"
+                            style={{
+                              backgroundColor: 'var(--bg-surface)',
+                              color: 'var(--text-primary)',
+                              border: '1px solid var(--border-main)',
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            disabled={
+                              !canLaunch ||
+                              matchmaking.searching ||
+                              normalizedJoin.length !== 6
+                            }
+                            className="tactile-btn shrink-0 rounded-[10px] px-3.5 py-2 text-xs font-semibold disabled:opacity-45"
+                            style={{
+                              backgroundColor: 'var(--bg-recessed)',
+                              color: 'var(--text-primary)',
+                              border: '1px solid var(--border-strong)',
+                            }}
+                          >
+                            Rejoindre
+                          </button>
+                        </div>
+                      </motion.form>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 {!connected && (

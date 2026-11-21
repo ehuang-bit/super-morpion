@@ -1,27 +1,25 @@
 import { LayoutGroup, motion } from 'framer-motion';
-import { BarChart3, Menu, Swords, Trophy, type LucideIcon } from 'lucide-react';
+import { BarChart3, Palette, Swords, Trophy, type LucideIcon } from 'lucide-react';
 import { CHIP_SPRING } from '../utils/motion';
 import type { NavTab } from './Sidebar';
 
 interface MobileTabBarProps {
   activeTab: NavTab;
-  menuOpen: boolean;
   onSelectTab: (tab: NavTab) => void;
-  onOpenMenu: () => void;
 }
 
-const TABS: readonly { id: NavTab | 'menu'; label: string; icon: LucideIcon }[] = [
+const TABS: readonly { id: NavTab; label: string; icon: LucideIcon }[] = [
   { id: 'play', label: 'Jouer', icon: Swords },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
   { id: 'leaderboard', label: 'Classement', icon: Trophy },
-  { id: 'menu', label: 'Menu', icon: Menu },
+  { id: 'customize', label: 'Style', icon: Palette },
 ];
 
 /**
  * Barre d'onglets fixée en bas de l'écran sur téléphone et tablette.
  * Elle tient compte de la barre d'accueil du téléphone (zone sûre).
  */
-export function MobileTabBar({ activeTab, menuOpen, onSelectTab, onOpenMenu }: MobileTabBarProps) {
+export function MobileTabBar({ activeTab, onSelectTab }: MobileTabBarProps) {
   return (
     <nav
       aria-label="Navigation principale"
@@ -36,17 +34,14 @@ export function MobileTabBar({ activeTab, menuOpen, onSelectTab, onOpenMenu }: M
     >
       <LayoutGroup id="mobile-tabbar">
         {TABS.map((tab) => {
-          const active =
-            tab.id === 'menu'
-              ? menuOpen || activeTab === 'customize'
-              : !menuOpen && activeTab === tab.id;
+          const active = activeTab === tab.id;
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
               type="button"
-              onClick={() => (tab.id === 'menu' ? onOpenMenu() : onSelectTab(tab.id))}
-              aria-current={active && tab.id !== 'menu' ? 'page' : undefined}
+              onClick={() => onSelectTab(tab.id)}
+              aria-current={active ? 'page' : undefined}
               className="tab-bar-btn relative flex flex-col items-center justify-center gap-0.5 h-14 text-[11px] font-semibold"
               style={{ color: active ? 'var(--text-primary)' : 'var(--text-muted)' }}
             >

@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { getEloTier } from '@shared/elo';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
 import { MOVE_TIME_LIMIT_MS, type TimeControl } from '@shared/protocol';
-import { CheckCircle2, Flag, LogOut, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Eye, Flag, LogOut, RotateCcw, X } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { CustomizeView } from './components/CustomizeView';
 import { GameEndBanner } from './components/GameEndBanner';
@@ -12,7 +12,6 @@ import { GlobalBoard } from './components/GlobalBoard';
 import { LeaderboardView } from './components/LeaderboardView';
 import { MatchIntro } from './components/MatchIntro';
 import { MatchOutcome, type OutcomeKind } from './components/MatchOutcome';
-import { MatchmakingModal } from './components/MatchmakingModal';
 import { MobileTabBar } from './components/MobileTabBar';
 import { MoveHistoryRibbon } from './components/MoveHistoryRibbon';
 import {
@@ -87,10 +86,10 @@ export function App() {
   );
   const [activeTab, setActiveTab] = useState<NavTab>('play');
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tutorialRequest, setTutorialRequest] = useState(0);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [confirmResign, setConfirmResign] = useState(false);
+  const [endBannerHidden, setEndBannerHidden] = useState(false);
   const [routeRoomCode, setRouteRoomCode] = useState<string | null>(() =>
     extractRoomCodeFromPath(window.location.pathname),
   );
@@ -125,7 +124,10 @@ export function App() {
 
   useEffect(() => {
     applyThemeToDocument(theme);
-  }, [theme]);
+    // Applique la palette sauvegardée au premier chargement uniquement
+    // (les changements suivants passent par handleChangeTheme avec onde circulaire)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reset resign confirmation when room phase changes
   useEffect(() => {
@@ -134,7 +136,7 @@ export function App() {
 
   useEffect(() => {
     if (!confirmResign) return;
-    const timer = window.setTimeout(() => setConfirmResign(false), 3200);
+    const timer = window.setTimeout(() => setConfirmResign(false), 3500);
     return () => window.clearTimeout(timer);
   }, [confirmResign]);
 
@@ -200,6 +202,7 @@ export function App() {
   const reduceMotion = useReducedMotion();
   const [intro, setIntro] = useState<{ key: string; endsAt: number } | null>(null);
   const [outcome, setOutcome] = useState<{ key: string; kind: OutcomeKind } | null>(null);
+  const [outcomeAnimatedKey, setOutcomeAnimatedKey] = useState<string | null>(null);
   const seenIntroRef = useRef<string | null>(null);
   const lastPhaseRef = useRef<{ key: string; phase: string } | null>(null);
   const liveSnapshot = onlineGame.snapshot;
@@ -210,6 +213,7 @@ export function App() {
       lastPhaseRef.current = null;
       setIntro(null);
       setOutcome(null);
+      setEndBannerHidden(false);
       return;
     }
     const key = `${liveSnapshot.code}-${liveSnapshot.gameNumber}`;
@@ -232,6 +236,7 @@ export function App() {
 
     if (liveSnapshot.phase !== 'finished') {
       setOutcome(null);
+      setEndBannerHidden(false);
     } else if (
       previous &&
       previous.key === key &&
@@ -241,6 +246,7 @@ export function App() {
       !reduceMotion
     ) {
       // Fin de partie vécue en direct (pas un rechargement de page)
+      setOutcomeAnimatedKey(key);
       setOutcome({
         key,
         kind:
@@ -433,12 +439,9 @@ export function App() {
         onlineGame.snapshot.phase === 'finished'),
   );
 
-  // Show AuthModal automatically on initial visit if user hasn't logged in or chosen guest mode yet
+  // Ne bloque plus la première visite : la fenêtre de connexion ne s'ouvre qu'à la demande ou lors d'un flux d'inscription externe
   const showEntryAuthModal =
-    authModalOpen ||
-    Boolean(auth.onboarding) ||
-    auth.magicLinkNeedsEmail ||
-    (!auth.loading && !auth.entryResolved && !routeRoomCode);
+    authModalOpen || Boolean(auth.onboarding) || auth.magicLinkNeedsEmail;
 
   const inMatchView = Boolean(
     onlineGame.snapshot &&
@@ -467,6 +470,8 @@ export function App() {
           onChangeBoardPrefs={handleChangeBoardPrefs}
           inActiveMatch={inActiveMatch}
           onBackToPlay={() => setActiveTab('play')}
+          hapticsEnabled={hapticsEnabled}
+          onToggleHaptics={handleToggleHaptics}
         />
       );
     }
@@ -485,7 +490,7 @@ export function App() {
       );
     }
 
-    // 1. Personal Statistics View
+    // 2. Personal Statistics View
     if (activeTab === 'stats') {
       return (
         <StatsView
@@ -498,6 +503,7 @@ export function App() {
           onRefresh={() => void onlineGame.fetchStats(activePseudo)}
           onBackToPlay={() => setActiveTab('play')}
           onOpenAuth={() => setAuthModalOpen(true)}
+          onLogout={auth.user ? () => void auth.logout() : undefined}
         />
       );
     }
@@ -583,7 +589,6 @@ export function App() {
               clocks={onlineClockValues}
               localPlayerSymbol={localSymbol}
               isOnline
-              roomCode={snap.code}
               eloStakes={snap.eloStakes}
               endReason={snap.endReason}
               matchWinner={snap.matchWinner}
@@ -598,7 +603,6 @@ export function App() {
           <div className="sm:hidden w-full pt-0.5">
             <MatchMetaStrip
               timeControl={snap.timeControl}
-              roomCode={snap.code}
               eloStakes={snap.eloStakes}
               perspectiveSymbol={localSymbol}
             />
@@ -659,6 +663,9 @@ export function App() {
                   isOnline
                   selfVotedRematch={selfVotedRematch}
                   opponentVotedRematch={opponentVotedRematch}
+                  skipRatingAnimation={outcomeAnimatedKey === matchKey}
+                  hidden={endBannerHidden}
+                  onHiddenChange={setEndBannerHidden}
                   onRematch={onlineGame.requestRematch}
                   onLeave={handleLeaveOnline}
                 />
@@ -673,7 +680,8 @@ export function App() {
           </div>
 
           {/* Compact Match Action Bar */}
-          <div className="w-full max-w-[580px] mx-auto flex items-center justify-between gap-2 rounded-[11px] px-3 py-1.5"
+          <div
+            className="w-full max-w-[580px] mx-auto flex items-center justify-between gap-2 rounded-[11px] px-3 py-1.5"
             style={{
               backgroundColor: 'var(--bg-board)',
               border: '1px solid var(--border-main)',
@@ -698,7 +706,7 @@ export function App() {
                     setConfirmResign(false);
                     void onlineGame.resign();
                   }}
-                  className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                  className="tactile-btn relative overflow-hidden inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
                   style={{
                     backgroundColor: confirmResign
                       ? 'var(--danger-bg)'
@@ -713,42 +721,73 @@ export function App() {
                     }`,
                   }}
                 >
-                  <Flag className="w-3.5 h-3.5" />
-                  <span>{confirmResign ? 'Confirmer abandon' : 'Abandonner'}</span>
+                  <Flag className="w-3.5 h-3.5 relative z-10" />
+                  <span className="relative z-10">
+                    {confirmResign ? 'Confirmer abandon' : 'Abandonner'}
+                  </span>
+                  {confirmResign && (
+                    <motion.span
+                      key="resign-expire"
+                      aria-hidden="true"
+                      initial={{ scaleX: 1 }}
+                      animate={{ scaleX: 0 }}
+                      transition={{ duration: 3.5, ease: 'linear' }}
+                      className="pointer-events-none absolute inset-x-0 bottom-0 h-[2.5px] origin-left"
+                      style={{ backgroundColor: 'var(--danger-color)' }}
+                    />
+                  )}
                 </button>
               )}
 
-              {snap.phase === 'finished' && (
+              {/* En fin de partie, on n'affiche ces actions en bas que lorsque le bandeau de résultat est replié */}
+              {snap.phase === 'finished' && !outcomePlaying && endBannerHidden && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEndBannerHidden(false)}
+                    className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border-strong)',
+                    }}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Résultat</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onlineGame.requestRematch()}
+                    disabled={selfVotedRematch}
+                    className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-60"
+                    style={{
+                      backgroundColor: 'var(--btn-primary-bg)',
+                      color: 'var(--btn-primary-text)',
+                    }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{selfVotedRematch ? 'Attente…' : 'Revanche'}</span>
+                  </button>
+                </>
+              )}
+
+              {(snap.phase === 'playing' || endBannerHidden) && (
                 <button
                   type="button"
-                  onClick={() => void onlineGame.requestRematch()}
-                  disabled={selfVotedRematch}
-                  className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-60"
+                  onClick={handleLeaveOnline}
+                  aria-label="Quitter la partie"
+                  title="Quitter vers le plateau d’accueil"
+                  className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
                   style={{
-                    backgroundColor: 'var(--btn-primary-bg)',
-                    color: 'var(--btn-primary-text)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border-cell)',
                   }}
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{selfVotedRematch ? 'Attente…' : 'Revanche'}</span>
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Quitter</span>
                 </button>
               )}
-
-              <button
-                type="button"
-                onClick={handleLeaveOnline}
-                aria-label="Quitter la partie"
-                title="Quitter vers le plateau d’accueil"
-                className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  color: 'var(--text-secondary)',
-                  border: '1px solid var(--border-cell)',
-                }}
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Quitter</span>
-              </button>
             </div>
           </div>
         </div>
@@ -770,6 +809,7 @@ export function App() {
         isBusy={onlineGame.isBusy}
         error={onlineGame.error}
         lobby={onlineGame.lobby}
+        matchmaking={onlineGame.matchmaking}
         waitingSnapshot={
           onlineGame.snapshot?.phase === 'waiting'
             ? onlineGame.snapshot
@@ -786,9 +826,9 @@ export function App() {
             timeControl,
           })
         }
+        onCancelMatchmaking={onlineGame.cancelMatchmaking}
         onCancelWaitingOrPrompt={handleLeaveOnline}
         onOpenStats={() => setActiveTab('stats')}
-        onOpenAuth={() => setAuthModalOpen(true)}
         tutorialRequest={tutorialRequest}
       />
     );
@@ -810,9 +850,6 @@ export function App() {
         onToggleHaptics={handleToggleHaptics}
         connected={onlineGame.connected}
         inActiveMatch={inActiveMatch}
-        mobileMenuOpen={mobileMenuOpen}
-        onMobileMenuChange={setMobileMenuOpen}
-        showMobileMenuButton={inMatchView}
       />
 
       {/* Sur téléphone, on laisse la place de la barre d'onglets (masquée en match) */}
@@ -864,12 +901,46 @@ export function App() {
         )}
       </AnimatePresence>
 
-      <MatchmakingModal
-        open={onlineGame.matchmaking.searching}
-        timeControl={onlineGame.matchmaking.timeControl}
-        queueSize={onlineGame.matchmaking.queueSize}
-        onCancel={onlineGame.cancelMatchmaking}
-      />
+      {/* Pastille discrète si l'on change d'onglet pendant la recherche d'un adversaire */}
+      <AnimatePresence>
+        {onlineGame.matchmaking.searching && activeTab !== 'play' && (
+          <motion.div
+            role="status"
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            className="fixed bottom-[4.5rem] lg:bottom-5 left-1/2 -translate-x-1/2 z-[65] rounded-full pl-3.5 pr-1.5 py-1.5 flex items-center gap-2.5 text-xs font-semibold"
+            style={{
+              backgroundColor: 'var(--bg-board)',
+              color: 'var(--text-primary)',
+              border: '1.5px solid var(--accent-active)',
+              boxShadow: 'var(--shadow-board)',
+            }}
+          >
+            <span className="live-dot" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => setActiveTab('play')}
+              className="hover:underline"
+            >
+              Recherche d’un adversaire…
+            </button>
+            <button
+              type="button"
+              onClick={onlineGame.cancelMatchmaking}
+              aria-label="Annuler la recherche"
+              className="inline-flex items-center justify-center w-6 h-6 rounded-full"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <RulesModal
         open={rulesOpen}
@@ -886,15 +957,7 @@ export function App() {
       />
 
       {!inMatchView && (
-        <MobileTabBar
-          activeTab={activeTab}
-          menuOpen={mobileMenuOpen}
-          onSelectTab={(tab) => {
-            setMobileMenuOpen(false);
-            setActiveTab(tab);
-          }}
-          onOpenMenu={() => setMobileMenuOpen(true)}
-        />
+        <MobileTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
       )}
 
       <AnimatePresence>

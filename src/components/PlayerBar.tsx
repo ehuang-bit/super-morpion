@@ -191,14 +191,12 @@ export function PlayerCard({
 
 interface MatchMetaStripProps {
   timeControl: TimeControl;
-  roomCode?: string;
   eloStakes: EloStakes | null;
   perspectiveSymbol?: Player | null;
 }
 
 export function MatchMetaStrip({
   timeControl,
-  roomCode,
   eloStakes,
   perspectiveSymbol,
 }: MatchMetaStripProps) {
@@ -211,23 +209,9 @@ export function MatchMetaStrip({
 
   return (
     <div className="w-full max-w-[580px] mx-auto px-2.5 flex items-center justify-between gap-2 text-[11px] leading-none">
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className="font-semibold truncate" style={{ color: 'var(--text-secondary)' }}>
-          {TIME_CONTROL_LABELS[timeControl]}
-        </span>
-        {roomCode && (
-          <span
-            className="rounded px-1.5 py-0.5 font-mono text-[10px] font-medium"
-            style={{
-              backgroundColor: 'var(--bg-surface)',
-              color: 'var(--text-muted)',
-              border: '1px solid var(--border-main)',
-            }}
-          >
-            #{roomCode}
-          </span>
-        )}
-      </div>
+      <span className="font-semibold truncate min-w-0" style={{ color: 'var(--text-secondary)' }}>
+        {TIME_CONTROL_LABELS[timeControl]}
+      </span>
 
       {eloStakes && winDelta !== undefined && drawDelta !== undefined && lossDelta !== undefined && (
         <div
@@ -260,7 +244,6 @@ interface TacticalStatusStripProps {
   phase: 'waiting' | 'playing' | 'finished';
   localPlayerSymbol?: Player | null;
   isOnline: boolean;
-  roomCode?: string;
   eloStakes?: EloStakes | null;
   endReason: EndReason | null;
   matchWinner: Player | null;
@@ -277,7 +260,6 @@ export function TacticalStatusStrip({
   phase,
   localPlayerSymbol,
   isOnline,
-  roomCode,
   eloStakes,
   endReason,
   matchWinner,
@@ -465,40 +447,26 @@ export function TacticalStatusStrip({
     <div className="w-full max-w-[580px] mx-auto flex h-7 items-center justify-between gap-2 px-2 sm:px-1">
       <div className="min-w-0 flex-1 flex items-center">{renderContent()}</div>
 
-      {showDesktopMeta && (
+      {showDesktopMeta && eloStakes && winDelta !== undefined && lossDelta !== undefined && (
         <div className="flex items-center gap-1.5 shrink-0">
-          {eloStakes && winDelta !== undefined && lossDelta !== undefined && (
-            <span
-              className="rounded px-1.5 py-0.5 font-mono text-[11px] tabular-nums"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border-cell)',
-              }}
-              title="Enjeu Elo (Victoire / Défaite)"
-            >
-              Elo{' '}
-              <span className="font-semibold" style={{ color: 'var(--x-color)' }}>
-                {formatSigned(winDelta)}
-              </span>
-              /
-              <span className="font-semibold" style={{ color: 'var(--danger-color)' }}>
-                {formatSigned(lossDelta)}
-              </span>
+          <span
+            className="rounded px-1.5 py-0.5 font-mono text-[11px] tabular-nums"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-cell)',
+            }}
+            title="Enjeu Elo (Victoire / Défaite)"
+          >
+            Elo{' '}
+            <span className="font-semibold" style={{ color: 'var(--x-color)' }}>
+              {formatSigned(winDelta)}
             </span>
-          )}
-          {roomCode && (
-            <span
-              className="rounded px-1.5 py-0.5 font-mono text-[11px] font-medium"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-muted)',
-                border: '1px solid var(--border-main)',
-              }}
-            >
-              #{roomCode}
+            /
+            <span className="font-semibold" style={{ color: 'var(--danger-color)' }}>
+              {formatSigned(lossDelta)}
             </span>
-          )}
+          </span>
         </div>
       )}
     </div>
@@ -515,7 +483,6 @@ interface PlayerBarProps {
   clocks: { X: number; O: number } | null;
   localPlayerSymbol?: Player | null;
   isOnline: boolean;
-  roomCode?: string;
   eloStakes?: EloStakes | null;
   endReason: EndReason | null;
   matchWinner: Player | null;
@@ -532,7 +499,6 @@ export function PlayerBar({
   clocks,
   localPlayerSymbol,
   isOnline,
-  roomCode,
   eloStakes,
   endReason,
   matchWinner,
@@ -576,7 +542,6 @@ export function PlayerBar({
           phase={phase}
           localPlayerSymbol={localPlayerSymbol}
           isOnline={isOnline}
-          roomCode={roomCode}
           eloStakes={eloStakes}
           endReason={endReason}
           matchWinner={matchWinner}

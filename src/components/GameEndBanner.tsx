@@ -24,6 +24,11 @@ interface GameEndBannerProps {
   opponentVotedRematch: boolean;
   onRematch: () => void;
   onLeave: () => void;
+  /** Ne rejoue pas le décompte Elo si la séquence de fin l'a déjà animé. */
+  skipRatingAnimation?: boolean;
+  /** Permet au parent de masquer/afficher le bandeau (mode inspection du plateau). */
+  hidden?: boolean;
+  onHiddenChange?: (hidden: boolean) => void;
 }
 
 function formatDelta(delta: number): string {
@@ -34,12 +39,19 @@ function RatingLine({
   label,
   result,
   emphasize,
+  skipAnimation = false,
 }: {
   label: string;
   result: EloMatchDelta;
   emphasize: boolean;
+  skipAnimation?: boolean;
 }) {
-  const shown = useAnimatedNumber(result.before, result.after, 950, emphasize ? 450 : 600);
+  const shown = useAnimatedNumber(
+    skipAnimation ? result.after : result.before,
+    result.after,
+    950,
+    emphasize ? 450 : 600,
+  );
   const deltaColor =
     result.delta > 0
       ? 'var(--x-color)'
@@ -79,7 +91,10 @@ function RatingLine({
           <motion.span
             initial={{ opacity: 0, scale: 0.6, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ ...CHIP_SPRING, delay: emphasize ? 0.4 : 0.55 }}
+            transition={{
+              ...CHIP_SPRING,
+              delay: skipAnimation ? 0.1 : emphasize ? 0.4 : 0.55,
+            }}
             className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 ${
               emphasize ? 'text-xs' : 'text-[10px]'
             } font-bold`}
@@ -117,9 +132,21 @@ export function GameEndBanner({
   opponentVotedRematch,
   onRematch,
   onLeave,
+  skipRatingAnimation = false,
+  hidden: controlledHidden,
+  onHiddenChange,
 }: GameEndBannerProps) {
-  const [hidden, setHidden] = useState(false);
+  const [internalHidden, setInternalHidden] = useState(false);
   const [shared, setShared] = useState(false);
+
+  const isControlled = controlledHidden !== undefined;
+  const hidden = isControlled ? controlledHidden : internalHidden;
+  const setHidden = (next: boolean) => {
+    if (!isControlled) {
+      setInternalHidden(next);
+    }
+    onHiddenChange?.(next);
+  };
 
   useEffect(() => {
     if (!shared) return;
@@ -189,6 +216,7 @@ export function GameEndBanner({
   };
 
   if (hidden) {
+    if (onHiddenChange) return null;
     return (
       <button
         type="button"
@@ -276,7 +304,12 @@ export function GameEndBanner({
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 16, delay: 1.2 }}
+              transition={{
+                type: 'spring',
+                stiffness: 380,
+                damping: 16,
+                delay: skipRatingAnimation ? 0.15 : 1.2,
+              }}
               className="self-start rounded-full px-3 py-1 text-xs font-bold"
               style={{
                 backgroundColor: tierChange === 'up' ? 'var(--accent-active-bg)' : 'var(--bg-recessed)',
@@ -293,12 +326,18 @@ export function GameEndBanner({
           <div className="flex flex-col gap-1.5">
             {myResult && localSymbol ? (
               <>
-                <RatingLine label="Ton classement" result={myResult} emphasize />
+                <RatingLine
+                  label="Ton classement"
+                  result={myResult}
+                  emphasize
+                  skipAnimation={skipRatingAnimation}
+                />
                 {oppResult && oppSymbol && (
                   <RatingLine
                     label={players[oppSymbol]?.pseudo ?? 'Adversaire'}
                     result={oppResult}
                     emphasize={false}
+                    skipAnimation={skipRatingAnimation}
                   />
                 )}
               </>
@@ -309,6 +348,7 @@ export function GameEndBanner({
                   label={players[sym]?.pseudo ?? sym}
                   result={eloResult[sym]}
                   emphasize={false}
+                  skipAnimation={skipRatingAnimation}
                 />
               ))
             )}

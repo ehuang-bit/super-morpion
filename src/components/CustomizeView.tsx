@@ -33,6 +33,8 @@ interface CustomizeViewProps {
   onChangeBoardPrefs: (next: BoardPreferences) => void;
   inActiveMatch: boolean;
   onBackToPlay: () => void;
+  hapticsEnabled?: boolean;
+  onToggleHaptics?: () => void;
 }
 
 /** Position d'exposition : zone A1 prise par X, C3 par O, zone centrale B2 active. */
@@ -73,6 +75,8 @@ export function CustomizeView({
   onChangeBoardPrefs,
   inActiveMatch,
   onBackToPlay,
+  hapticsEnabled,
+  onToggleHaptics,
 }: CustomizeViewProps) {
   const [previewState, setPreviewState] = useState<GameState>(() =>
     buildShowcaseState(),
@@ -643,6 +647,48 @@ export function CustomizeView({
                   {boardPrefs.showProjector ? 'Oui' : 'Non'}
                 </span>
               </button>
+
+              {onToggleHaptics && typeof hapticsEnabled === 'boolean' && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={hapticsEnabled}
+                  onClick={onToggleHaptics}
+                  className="lg:hidden tactile-btn rounded-[12px] p-3 flex items-center justify-between gap-3 text-left"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    border: '1px solid var(--border-cell)',
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span
+                      className="block text-xs font-bold"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      Vibrations haptiques
+                    </span>
+                    <span
+                      className="block text-[11px] mt-0.5"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      Retour tactile aux coups, captures et décompte
+                    </span>
+                  </span>
+                  <span
+                    className="shrink-0 rounded-full px-2.5 py-0.5 font-mono text-[11px] font-semibold"
+                    style={{
+                      backgroundColor: hapticsEnabled
+                        ? 'var(--x-surface)'
+                        : 'var(--bg-recessed)',
+                      color: hapticsEnabled
+                        ? 'var(--x-color)'
+                        : 'var(--text-muted)',
+                    }}
+                  >
+                    {hapticsEnabled ? 'Oui' : 'Non'}
+                  </span>
+                </button>
+              )}
             </div>
           </section>
         </div>
