@@ -27,7 +27,6 @@ import type { BoardPreferences } from './types/boardPrefs';
 import { applyThemeToDocument, type ThemeId } from './types/theme';
 import { normalizeRoomCode } from './utils/format';
 import { haptics } from './utils/haptics';
-import { SMOOTH_EASE } from './utils/motion';
 import { soundEngine } from './utils/soundEngine';
 import {
   getLastJoinedRoom,
@@ -677,18 +676,10 @@ export function App() {
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={viewKey}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: SMOOTH_EASE }}
-            className="flex-1 min-w-0 flex flex-col"
-          >
-            {renderMainView()}
-          </motion.div>
-        </AnimatePresence>
+        {/* Animation d'entrée en CSS : jamais bloquée, même onglet en arrière-plan */}
+        <div key={viewKey} className="view-enter flex-1 min-w-0 flex flex-col">
+          {renderMainView()}
+        </div>
       </div>
 
       <AuthModal
