@@ -209,16 +209,25 @@ export function useOnlineGame(
               : null;
 
         if (prev.phase === 'playing' && next.phase === 'finished') {
-          if (next.matchWinner) {
-            soundEngine.playVictory();
-            if (localSymbol === null || localSymbol === next.matchWinner) {
-              haptics.victory();
-            } else {
-              haptics.defeat();
-            }
-          } else {
-            soundEngine.playDraw();
+          // Le dernier coup garde son propre son
+          const finalRecord =
+            next.gameState.moveHistory.length > prev.gameState.moveHistory.length
+              ? next.gameState.moveHistory[next.gameState.moveHistory.length - 1]
+              : null;
+          if (finalRecord?.capturedBoard) {
+            soundEngine.playCapture(finalRecord.player);
+          }
+
+          // Le son de fin accompagne l'arrivée de l'encre (voir MatchOutcome)
+          if (next.endReason === 'aborted' || !next.matchWinner) {
+            window.setTimeout(() => soundEngine.playDraw(), 350);
             haptics.draw();
+          } else if (localSymbol === null || localSymbol === next.matchWinner) {
+            window.setTimeout(() => soundEngine.playVictory(), 850);
+            haptics.victory();
+          } else {
+            window.setTimeout(() => soundEngine.playDefeat(), 350);
+            haptics.defeat();
           }
           void fetchProfile(lastPseudoRef.current);
           void fetchStats(lastPseudoRef.current);
@@ -228,7 +237,10 @@ export function useOnlineGame(
           const lastRecord =
             next.gameState.moveHistory[next.gameState.moveHistory.length - 1];
           if (lastRecord) {
-            if (lastRecord.capturedBoard) {
+            if (lastRecord.auto) {
+              soundEngine.playAutoMove();
+              haptics.freeMove();
+            } else if (lastRecord.capturedBoard) {
               soundEngine.playCapture(lastRecord.player);
               haptics.capture();
             } else {
@@ -240,6 +252,9 @@ export function useOnlineGame(
               } else {
                 haptics.opponentMove();
               }
+            }
+            if (lastRecord.triggeredFreeMove && next.phase === 'playing') {
+              soundEngine.playFreeMove();
             }
           }
         }
@@ -568,6 +583,9 @@ export function useOnlineGame(
         } else {
           haptics.move();
         }
+      }
+      if (lastRecord?.triggeredFreeMove && local.state.status === 'playing') {
+        soundEngine.playFreeMove();
       }
 
       prevSnapshotRef.current = optimistic;

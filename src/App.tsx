@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { getEloTier } from '@shared/elo';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
 import { MOVE_TIME_LIMIT_MS, type TimeControl } from '@shared/protocol';
 import { CheckCircle2, Flag, LogOut, RotateCcw } from 'lucide-react';
@@ -8,6 +9,8 @@ import { BoardCustomizeModal } from './components/BoardCustomizeModal';
 import { GameEndBanner } from './components/GameEndBanner';
 import { GlobalBoard } from './components/GlobalBoard';
 import { LeaderboardView } from './components/LeaderboardView';
+import { MatchIntro } from './components/MatchIntro';
+import { MatchOutcome, type OutcomeKind } from './components/MatchOutcome';
 import { MatchmakingModal } from './components/MatchmakingModal';
 import { MoveHistoryRibbon } from './components/MoveHistoryRibbon';
 import {
@@ -184,6 +187,75 @@ export function App() {
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
   }, [snapPhase, snapTurn, snapLocal]);
+
+  // Moments forts : présentation des joueurs au lancement, séquence de fin.
+  // Rien n'est joué si le système demande de réduire les animations.
+  const reduceMotion = useReducedMotion();
+  const [intro, setIntro] = useState<{ key: string; endsAt: number } | null>(null);
+  const [outcome, setOutcome] = useState<{ key: string; kind: OutcomeKind } | null>(null);
+  const seenIntroRef = useRef<string | null>(null);
+  const lastPhaseRef = useRef<{ key: string; phase: string } | null>(null);
+  const liveSnapshot = onlineGame.snapshot;
+  const liveClockOffsetMs = onlineGame.clockOffsetMs;
+
+  useEffect(() => {
+    if (!liveSnapshot) {
+      lastPhaseRef.current = null;
+      setIntro(null);
+      setOutcome(null);
+      return;
+    }
+    const key = `${liveSnapshot.code}-${liveSnapshot.gameNumber}`;
+    const previous = lastPhaseRef.current;
+    lastPhaseRef.current = { key, phase: liveSnapshot.phase };
+
+    // Partie qui démarre : le premier chrono n'a pas encore commencé
+    if (
+      liveSnapshot.phase === 'playing' &&
+      liveSnapshot.gameState.moveHistory.length === 0 &&
+      liveSnapshot.turnStartedAt !== null &&
+      seenIntroRef.current !== key
+    ) {
+      seenIntroRef.current = key;
+      const remaining = liveSnapshot.turnStartedAt - (Date.now() + liveClockOffsetMs);
+      if (!reduceMotion && remaining > 900) {
+        setIntro({ key, endsAt: Date.now() + remaining - 250 });
+      }
+    }
+
+    if (liveSnapshot.phase !== 'finished') {
+      setOutcome(null);
+    } else if (
+      previous &&
+      previous.key === key &&
+      previous.phase === 'playing' &&
+      liveSnapshot.endReason !== 'aborted' &&
+      snapLocal !== null &&
+      !reduceMotion
+    ) {
+      // Fin de partie vécue en direct (pas un rechargement de page)
+      setOutcome({
+        key,
+        kind:
+          liveSnapshot.matchWinner === null
+            ? 'draw'
+            : liveSnapshot.matchWinner === snapLocal
+              ? 'win'
+              : 'loss',
+      });
+    }
+  }, [liveSnapshot, liveClockOffsetMs, reduceMotion, snapLocal]);
+
+  useEffect(() => {
+    if (!intro) return;
+    const timer = window.setTimeout(
+      () => setIntro(null),
+      Math.max(0, intro.endsAt - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [intro]);
+
+  const handleOutcomeDone = useCallback(() => setOutcome(null), []);
 
   // Browser back/forward navigation
   useEffect(() => {
@@ -430,6 +502,15 @@ export function App() {
       const xCaptured = snap.gameState.boards.filter((b) => b.status === 'X').length;
       const oCaptured = snap.gameState.boards.filter((b) => b.status === 'O').length;
       const bottomSymbol: Player = localSymbol === 'O' ? 'O' : 'X';
+
+      const matchKey = `${snap.code}-${snap.gameNumber}`;
+      const outcomePlaying = outcome !== null && outcome.key === matchKey;
+      const lostMatch =
+        snap.phase === 'finished' &&
+        snap.endReason !== 'aborted' &&
+        localSymbol !== null &&
+        snap.matchWinner !== null &&
+        snap.matchWinner !== localSymbol;
       const topSymbol: Player = bottomSymbol === 'X' ? 'O' : 'X';
 
       const renderMobileCard = (symbol: Player) => {
@@ -505,14 +586,22 @@ export function App() {
             </div>
 
             <div className="relative flex items-center justify-center">
-              <GlobalBoard
-                gameState={snap.gameState}
-                canInteract={canInteract}
-                boardPrefs={boardPrefs}
-                variant="arena"
-                onPlayMove={onlineGame.playMove}
-                onPreviewChange={handlePreviewChange}
-              />
+              {/* Après une défaite, le plateau perd ses couleurs */}
+              <div
+                style={{
+                  filter: lostMatch ? 'grayscale(0.9)' : 'grayscale(0)',
+                  transition: 'filter 800ms ease',
+                }}
+              >
+                <GlobalBoard
+                  gameState={snap.gameState}
+                  canInteract={canInteract}
+                  boardPrefs={boardPrefs}
+                  variant="arena"
+                  onPlayMove={onlineGame.playMove}
+                  onPreviewChange={handlePreviewChange}
+                />
+              </div>
               <TurnTimer
                 turnStartedAt={snap.turnStartedAt}
                 limitMs={snap.moveTimeLimitMs ?? MOVE_TIME_LIMIT_MS}
@@ -522,7 +611,7 @@ export function App() {
                 running={snap.phase === 'playing'}
                 strictCorners={boardPrefs.boardShape === 'strict'}
               />
-              {snap.phase === 'finished' && (
+              {snap.phase === 'finished' && !outcomePlaying && (
                 <GameEndBanner
                   key={`${snap.code}-${snap.gameNumber}`}
                   players={snap.players}
@@ -753,6 +842,54 @@ export function App() {
       />
 
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+
+      <AnimatePresence>
+        {intro && liveSnapshot && liveSnapshot.phase === 'playing' && (
+          <MatchIntro
+            key={intro.key}
+            players={liveSnapshot.players}
+            localSymbol={snapLocal}
+            eloStakes={liveSnapshot.eloStakes}
+            timeControl={liveSnapshot.timeControl}
+            pieceStyle={boardPrefs.pieceStyle}
+          />
+        )}
+      </AnimatePresence>
+
+      {outcome &&
+        liveSnapshot &&
+        liveSnapshot.phase === 'finished' &&
+        (() => {
+          const result =
+            snapLocal && liveSnapshot.eloResult ? liveSnapshot.eloResult[snapLocal] : null;
+          const promoted =
+            outcome.kind === 'win' &&
+            result !== null &&
+            result.rated !== false &&
+            getEloTier(result.after).min > getEloTier(result.before).min;
+          const winner = liveSnapshot.matchWinner;
+          return (
+            <MatchOutcome
+              key={outcome.key}
+              kind={outcome.kind}
+              inkColor={
+                winner === 'X'
+                  ? 'var(--x-color)'
+                  : winner === 'O'
+                    ? 'var(--o-color)'
+                    : 'var(--text-secondary)'
+              }
+              confettiVars={[
+                '--bg-board',
+                '--accent-active',
+                winner === 'X' ? '--o-color' : '--x-color',
+              ]}
+              myResult={result}
+              promotionLabel={promoted && result ? getEloTier(result.after).label : null}
+              onDone={handleOutcomeDone}
+            />
+          );
+        })()}
 
       {DemoPanel && (
         <Suspense fallback={null}>
