@@ -6,7 +6,7 @@ import {
   type GameState,
   type Move,
 } from '@shared/gameEngine';
-import { ArrowLeft, Palette, RotateCcw, Sparkles } from 'lucide-react';
+import { ArrowLeft, Eye, Palette, RotateCcw } from 'lucide-react';
 import {
   BOARD_MATERIALS,
   BOARD_SHAPES,
@@ -195,7 +195,7 @@ export function CustomizeView({
                 className="inline-flex items-center gap-1.5 text-xs font-bold"
                 style={{ color: 'var(--text-primary)' }}
               >
-                <Sparkles
+                <Eye
                   className="w-3.5 h-3.5"
                   style={{ color: 'var(--accent-active-text)' }}
                 />

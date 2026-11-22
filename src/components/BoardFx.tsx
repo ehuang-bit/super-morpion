@@ -247,9 +247,8 @@ export function BoardFx({ shellRef, gameState, strictCorners }: BoardFxProps) {
                 width: fx.target.w,
                 height: fx.target.h,
                 borderRadius: zoneRadius,
-                border: '3px solid var(--accent-active)',
+                border: '2.5px solid var(--accent-active)',
                 backgroundColor: 'var(--accent-active-bg)',
-                boxShadow: '0 0 0 6px var(--accent-active-bg)',
               }}
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: [0, 1, 0], scale: [0.94, 1.045, 1] }}

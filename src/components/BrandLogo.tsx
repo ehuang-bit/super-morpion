@@ -1,5 +1,3 @@
-import { useId } from 'react';
-
 interface BrandLogoProps {
   variant?: 'sidebar' | 'compact';
   connected?: boolean;
@@ -7,59 +5,34 @@ interface BrandLogoProps {
 
 /**
  * Emblème architectural 3×3 + logotype graphique « Super Morpion ».
- * Toutes les couleurs passent par les variables CSS du thème actif.
+ * Surfaces planes sans dégradés, entièrement calées sur les variables du thème.
  */
 export function BrandLogo({
   variant = 'sidebar',
   connected = true,
 }: BrandLogoProps) {
-  const uid = useId().replace(/:/g, '');
-  const gradBg = `sm-bg-${uid}`;
-  const gradLine = `sm-line-${uid}`;
   const isCompact = variant === 'compact';
 
   return (
     <span className="inline-flex items-center gap-2.5 min-w-0 select-none">
-      {/* Sceau 3×3 biseauté */}
+      {/* Sceau 3×3 plat */}
       <span
-        className={`relative shrink-0 inline-flex items-center justify-center transition-transform duration-200 group-hover:scale-[1.06] group-hover:-rotate-2 ${
+        className={`relative shrink-0 inline-flex items-center justify-center transition-transform duration-200 group-hover:scale-[1.04] ${
           isCompact ? 'w-8 h-8' : 'w-10 h-10'
         }`}
         aria-hidden="true"
       >
         <svg viewBox="0 0 40 40" className="w-full h-full overflow-visible">
-          <defs>
-            <linearGradient id={gradBg} x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="var(--bg-board)" />
-              <stop offset="100%" stopColor="var(--bg-recessed)" />
-            </linearGradient>
-            <linearGradient id={gradLine} x1="15%" y1="15%" x2="88%" y2="88%">
-              <stop offset="0%" stopColor="var(--x-color)" />
-              <stop offset="52%" stopColor="var(--accent-active)" />
-              <stop offset="100%" stopColor="var(--o-color)" />
-            </linearGradient>
-          </defs>
-
           {/* Boîtier du sceau */}
           <rect
             x="1.5"
             y="1.5"
             width="37"
             height="37"
-            rx="10"
-            fill={`url(#${gradBg})`}
+            rx="9"
+            fill="var(--bg-surface)"
             stroke="var(--border-strong)"
             strokeWidth="1.4"
-          />
-          <rect
-            x="3.8"
-            y="3.8"
-            width="32.4"
-            height="32.4"
-            rx="7.8"
-            fill="none"
-            stroke="var(--border-cell)"
-            strokeWidth="0.9"
           />
 
           {/* Grille 3×3 gravée */}
@@ -77,7 +50,7 @@ export function BrandLogo({
             y="26.2"
             width="7.4"
             height="7.4"
-            rx="2.1"
+            rx="2"
             fill="var(--accent-active-bg)"
             stroke="var(--accent-active)"
             strokeWidth="1.45"
@@ -106,16 +79,6 @@ export function BrandLogo({
             stroke="var(--o-color)"
             strokeWidth="2"
           />
-
-          {/* Trait diagonal d'alignement */}
-          <path
-            d="M7.5 7.5L32.8 32.8"
-            stroke={`url(#${gradLine})`}
-            strokeWidth="1.25"
-            strokeLinecap="round"
-            strokeDasharray="2 3"
-            opacity="0.65"
-          />
         </svg>
 
         {isCompact && (
@@ -131,7 +94,7 @@ export function BrandLogo({
         )}
       </span>
 
-      {/* Logotype typographique stylisé */}
+      {/* Logotype typographique */}
       <span className="min-w-0 flex flex-col items-start">
         <span className="flex items-center gap-1.5 leading-none" aria-hidden="true">
           <span
@@ -141,10 +104,10 @@ export function BrandLogo({
             Super
           </span>
           <span
-            className="inline-block h-[1.5px] rounded-full w-4"
+            className="inline-block h-[1.5px] rounded-full w-3.5"
             style={{
-              background:
-                'linear-gradient(90deg, var(--accent-active), transparent)',
+              backgroundColor: 'var(--accent-active)',
+              opacity: 0.65,
             }}
           />
         </span>
@@ -157,7 +120,6 @@ export function BrandLogo({
           aria-hidden="true"
         >
           <span>M</span>
-          {/* O stylisé en pièce de plateau */}
           <span
             className="relative inline-flex items-center justify-center mx-[0.5px]"
             style={{ width: isCompact ? 11 : 12, height: isCompact ? 11 : 12 }}

@@ -47,7 +47,7 @@ export function Confetti({
     const colors = colorVarList
       .map((v) => styles.getPropertyValue(v).trim())
       .filter(Boolean);
-    if (colors.length === 0) colors.push('#C88A2E');
+    if (colors.length === 0) colors.push('#286452');
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const resize = () => {

@@ -337,26 +337,27 @@ export function MatchOutcome({
               animate={{ opacity: 1 }}
               transition={{ duration: 0.2 }}
             >
-              {/* Rayons */}
-              <motion.div
+              {/* Anneaux concentriques gravés (sans dégradé conique) */}
+              <motion.svg
                 aria-hidden="true"
-                className="absolute left-1/2 rounded-full"
+                viewBox="0 0 260 260"
+                className="pointer-events-none absolute left-1/2"
                 style={{
                   top: 'clamp(55px, 14vmin, 110px)',
-                  width: '130vmin',
-                  height: '130vmin',
-                  marginLeft: '-65vmin',
-                  marginTop: '-65vmin',
-                  opacity: 0.16,
-                  background:
-                    'repeating-conic-gradient(currentColor 0deg 7deg, transparent 7deg 20deg)',
-                  WebkitMaskImage: 'radial-gradient(circle, black 12%, transparent 62%)',
-                  maskImage: 'radial-gradient(circle, black 12%, transparent 62%)',
+                  width: 'min(92vmin, 420px)',
+                  height: 'min(92vmin, 420px)',
+                  marginLeft: 'calc(min(92vmin, 420px) / -2)',
+                  marginTop: 'calc(min(92vmin, 420px) / -2)',
+                  opacity: 0.2,
                 }}
-                initial={{ rotate: 0, scale: 0.4 }}
-                animate={{ rotate: 70, scale: 1 }}
-                transition={{ duration: PROMOTION_SECONDS, ease: 'linear' }}
-              />
+                initial={{ scale: 0.72, opacity: 0 }}
+                animate={{ scale: 1, opacity: 0.2 }}
+                transition={{ duration: 0.55, ease: SMOOTH_EASE }}
+              >
+                <circle cx="130" cy="130" r="88" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                <circle cx="130" cy="130" r="110" fill="none" stroke="currentColor" strokeWidth="0.9" strokeDasharray="3 6" />
+                <circle cx="130" cy="130" r="126" fill="none" stroke="currentColor" strokeWidth="0.7" opacity="0.6" />
+              </motion.svg>
               <motion.svg
                 aria-hidden="true"
                 viewBox="0 0 100 104"

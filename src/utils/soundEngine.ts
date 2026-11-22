@@ -67,9 +67,9 @@ class SoundEngine {
   }
 
   /**
-   * Pose d'une pièce (bois/céramique mat), enrichie selon la tension du plateau :
-   * - `'heated'` : harmonique douce à la quinte supérieure ;
-   * - `'match-point'` : attaque céramique plus vive et résonance grave tendue.
+   * Pose d'une pièce : clic sec et cristallin (pierre / porcelaine sur plateau),
+   * plus aigu et acoustique, sans glissement synthétique descendant.
+   * Une micro-variation naturelle (±1,5 %) évite toute répétition mécanique.
    */
   public playMove(player: Player, tension: BoardTension = 'calm'): void {
     const ctx = this.ensureContext();
@@ -77,69 +77,83 @@ class SoundEngine {
 
     const now = ctx.currentTime;
     const isMatchPoint = tension === 'match-point';
+    const jitter = 0.985 + Math.random() * 0.03;
 
-    // Transitoire tactile (un peu plus vif sur balle de match)
+    // 1. Impact de contact très bref et aigu (14 ms — clic tactile sur plateau)
     const noise = ctx.createBufferSource();
     noise.buffer = this.getNoiseBuffer(ctx);
     const filter = ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    const baseFilterFreq = player === 'X' ? 920 : 1180;
+    const baseClickFreq = (player === 'X' ? 3100 : 3700) * jitter;
     filter.frequency.setValueAtTime(
-      isMatchPoint ? baseFilterFreq * 1.18 : baseFilterFreq,
+      isMatchPoint ? baseClickFreq * 1.12 : baseClickFreq,
       now,
     );
-    filter.Q.setValueAtTime(isMatchPoint ? 2.6 : 2.2, now);
+    filter.Q.setValueAtTime(isMatchPoint ? 3.2 : 2.8, now);
 
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(isMatchPoint ? 0.11 : 0.08, now);
-    noiseGain.gain.exponentialRampToValueAtTime(
-      0.001,
-      now + (isMatchPoint ? 0.038 : 0.032),
-    );
+    noiseGain.gain.setValueAtTime(isMatchPoint ? 0.088 : 0.072, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
 
     noise.connect(filter);
     filter.connect(noiseGain);
     noiseGain.connect(ctx.destination);
     noise.start(now);
+    noise.stop(now + 0.02);
 
-    // Corps chaud en céramique/bois
-    const osc = ctx.createOscillator();
-    osc.type = 'triangle';
-    const startFreq = player === 'X' ? 285 : 345;
-    const endFreq = player === 'X' ? 158 : 196;
-    osc.frequency.setValueAtTime(startFreq, now);
-    osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.055);
+    // 2. Résonance modale principale aiguë à fréquence fixe (pierre / céramique)
+    const primaryFreq = (player === 'X' ? 987.77 : 1174.66) * jitter;
+    const mainOsc = ctx.createOscillator();
+    mainOsc.type = 'sine';
+    mainOsc.frequency.setValueAtTime(primaryFreq, now);
 
-    const toneGain = ctx.createGain();
-    toneGain.gain.setValueAtTime(0.001, now);
-    toneGain.gain.linearRampToValueAtTime(isMatchPoint ? 0.125 : 0.11, now + 0.004);
-    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.068);
+    const mainGain = ctx.createGain();
+    mainGain.gain.setValueAtTime(0.001, now);
+    mainGain.gain.linearRampToValueAtTime(isMatchPoint ? 0.095 : 0.082, now + 0.0018);
+    mainGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
 
-    osc.connect(toneGain);
-    toneGain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.075);
+    mainOsc.connect(mainGain);
+    mainGain.connect(ctx.destination);
+    mainOsc.start(now);
+    mainOsc.stop(now + 0.044);
 
-    // Partie disputée ou balle de match : harmonique douce à la quinte supérieure
+    // 3. Partiel supérieur céramique (~2.42× fondamentale, extinction ultra-courte)
+    const overtoneOsc = ctx.createOscillator();
+    overtoneOsc.type = 'sine';
+    overtoneOsc.frequency.setValueAtTime(primaryFreq * 2.42, now);
+
+    const overtoneGain = ctx.createGain();
+    overtoneGain.gain.setValueAtTime(0.001, now);
+    overtoneGain.gain.linearRampToValueAtTime(isMatchPoint ? 0.036 : 0.028, now + 0.0012);
+    overtoneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.016);
+
+    overtoneOsc.connect(overtoneGain);
+    overtoneGain.connect(ctx.destination);
+    overtoneOsc.start(now);
+    overtoneOsc.stop(now + 0.022);
+
+    // 4. Très léger corps de table boisée pour ancrer le clic sans l'alourdir
+    const bodyOsc = ctx.createOscillator();
+    bodyOsc.type = 'sine';
+    bodyOsc.frequency.setValueAtTime((player === 'X' ? 587.33 : 659.25) * jitter, now);
+
+    const bodyGain = ctx.createGain();
+    bodyGain.gain.setValueAtTime(0.001, now);
+    bodyGain.gain.linearRampToValueAtTime(0.024, now + 0.002);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+
+    bodyOsc.connect(bodyGain);
+    bodyGain.connect(ctx.destination);
+    bodyOsc.start(now);
+    bodyOsc.stop(now + 0.028);
+
+    // 5. Tension élevée : fine brillance à l'octave supérieure (sans bourdonnement grave)
     if (tension === 'heated' || isMatchPoint) {
       this.tone(ctx, {
-        freq: startFreq * 1.5,
-        start: now + 0.004,
-        duration: isMatchPoint ? 0.15 : 0.14,
-        peak: isMatchPoint ? 0.032 : 0.038,
-        type: 'sine',
-      });
-    }
-
-    // Balle de match : résonance grave tendue pour souligner l'enjeu
-    if (isMatchPoint) {
-      const lowFreq = player === 'X' ? 110 : 130.81;
-      this.tone(ctx, {
-        freq: lowFreq,
-        glideTo: lowFreq * 0.96,
-        start: now + 0.005,
-        duration: 0.26,
-        peak: 0.068,
+        freq: primaryFreq * 2,
+        start: now + 0.003,
+        duration: isMatchPoint ? 0.075 : 0.055,
+        peak: isMatchPoint ? 0.024 : 0.016,
         type: 'sine',
       });
     }

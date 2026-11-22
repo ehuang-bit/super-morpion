@@ -59,25 +59,25 @@ interface CardPalette {
 }
 
 const ATELIER_FALLBACK: Omit<CardPalette, 'isDark'> = {
-  bgCanvas: '#F4EFE6',
-  bgBoard: '#FBF9F4',
-  bgSurface: '#F7F3EA',
-  bgRecessed: '#EDE6DA',
-  borderMain: '#DDD4C4',
-  borderCell: '#E7DFD1',
-  borderStrong: '#C9BDAA',
-  textPrimary: '#1F1E1C',
-  textSecondary: '#585046',
-  textMuted: '#6B6256',
-  xColor: '#1D5B42',
-  xSurface: '#E3EFE9',
-  oColor: '#6F452E',
-  oSurface: '#EFE6DE',
-  drawSurface: '#E9E2D5',
-  accentActive: '#C88A2E',
-  accentActiveBg: 'rgba(200, 138, 46, 0.14)',
-  accentActiveText: '#8A580F',
-  dangerColor: '#B44332',
+  bgCanvas: '#F3F5F8',
+  bgBoard: '#FCFDFE',
+  bgSurface: '#EFF2F6',
+  bgRecessed: '#E4E9F0',
+  borderMain: '#D2D8E2',
+  borderCell: '#E1E6EE',
+  borderStrong: '#B8C1CF',
+  textPrimary: '#161B26',
+  textSecondary: '#485163',
+  textMuted: '#5B6476',
+  xColor: '#21458C',
+  xSurface: '#E3EAF6',
+  oColor: '#8C2D45',
+  oSurface: '#F5E4E8',
+  drawSurface: '#E4E8EF',
+  accentActive: '#286452',
+  accentActiveBg: 'rgba(40, 100, 82, 0.11)',
+  accentActiveText: '#1C4E3F',
+  dangerColor: '#A62D38',
 };
 
 function parseRgb(color: string): [number, number, number] | null {
@@ -495,45 +495,18 @@ function drawEditorialPaper(
   palette: CardPalette,
   heroTint: string,
 ): void {
-  // Fond principal
+  // Fond principal plat (sans halo radial)
   ctx.fillStyle = palette.bgCanvas;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Halo atmosphérique discret en tête d'affiche
-  const topGlow = ctx.createRadialGradient(
-    CARD_WIDTH / 2,
-    200,
-    40,
-    CARD_WIDTH / 2,
-    240,
-    580,
-  );
-  topGlow.addColorStop(0, withAlpha(heroTint, palette.isDark ? 0.13 : 0.08));
-  topGlow.addColorStop(1, withAlpha(heroTint, 0));
-  ctx.fillStyle = topGlow;
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-
-  // Chaleur douce vers le pied de carte
-  const bottomGlow = ctx.createRadialGradient(
-    CARD_WIDTH / 2,
-    1180,
-    30,
-    CARD_WIDTH / 2,
-    1180,
-    480,
-  );
-  bottomGlow.addColorStop(
-    0,
-    withAlpha(palette.accentActive, palette.isDark ? 0.06 : 0.05),
-  );
-  bottomGlow.addColorStop(1, withAlpha(palette.accentActive, 0));
-  ctx.fillStyle = bottomGlow;
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  // Filet supérieur éditorial dans la teinte du vainqueur
+  ctx.fillStyle = heroTint;
+  ctx.fillRect(46, 32, CARD_WIDTH - 92, 4);
 
   // Feuillet intérieur passe-partout
   ctx.save();
   roundedRectPath(ctx, 46, 46, CARD_WIDTH - 92, CARD_HEIGHT - 92, 24);
-  ctx.fillStyle = withAlpha(palette.bgBoard, palette.isDark ? 0.44 : 0.56);
+  ctx.fillStyle = withAlpha(palette.bgBoard, palette.isDark ? 0.52 : 0.72);
   ctx.fill();
   ctx.restore();
 
@@ -599,20 +572,11 @@ function drawAtelierSeal(
   ctx.translate(x, y);
   ctx.scale(s, s);
 
-  const bgGrad = ctx.createLinearGradient(0, 0, 40, 40);
-  bgGrad.addColorStop(0, palette.bgBoard);
-  bgGrad.addColorStop(1, palette.bgRecessed);
-
-  roundedRectPath(ctx, 1.5, 1.5, 37, 37, 10);
-  ctx.fillStyle = bgGrad;
+  roundedRectPath(ctx, 1.5, 1.5, 37, 37, 9);
+  ctx.fillStyle = palette.bgSurface;
   ctx.fill();
   ctx.strokeStyle = palette.borderStrong;
   ctx.lineWidth = 1.4;
-  ctx.stroke();
-
-  roundedRectPath(ctx, 3.8, 3.8, 32.4, 32.4, 7.8);
-  ctx.strokeStyle = palette.borderCell;
-  ctx.lineWidth = 0.9;
   ctx.stroke();
 
   // Grille 3×3 gravée
@@ -669,23 +633,6 @@ function drawAtelierSeal(
   ctx.strokeStyle = palette.oColor;
   ctx.lineWidth = 2;
   ctx.stroke();
-
-  // Trait diagonal discret
-  const diagGrad = ctx.createLinearGradient(7.5, 7.5, 32.8, 32.8);
-  diagGrad.addColorStop(0, palette.xColor);
-  diagGrad.addColorStop(0.52, palette.accentActive);
-  diagGrad.addColorStop(1, palette.oColor);
-  ctx.save();
-  ctx.strokeStyle = diagGrad;
-  ctx.globalAlpha = 0.65;
-  ctx.lineWidth = 1.25;
-  ctx.lineCap = 'round';
-  ctx.setLineDash([2, 3]);
-  ctx.beginPath();
-  ctx.moveTo(7.5, 7.5);
-  ctx.lineTo(32.8, 32.8);
-  ctx.stroke();
-  ctx.restore();
 
   ctx.restore();
 }
