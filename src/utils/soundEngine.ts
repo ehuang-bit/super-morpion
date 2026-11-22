@@ -67,96 +67,113 @@ class SoundEngine {
   }
 
   /**
-   * Pose d'une pièce : clic sec et cristallin (pierre / porcelaine sur plateau),
-   * plus aigu et acoustique, sans glissement synthétique descendant.
-   * Une micro-variation naturelle (±1,5 %) évite toute répétition mécanique.
+   * Pose réaliste d'un pion en bois sur un plateau en bois (synthèse Web Audio) :
+   * - contact médium très bref (~10 ms) ;
+   * - coup sourd du plateau (~170 Hz, extinction ~80 ms) ;
+   * - résonances courtes de la pièce (~400 Hz, ~900 Hz, ~1,6 kHz) ;
+   * - léger rebond de stabilisation 20 à 35 ms après ;
+   * - filtre passe-bas à 3,8 kHz pour un timbre mat et chaleureux.
+   * En tension 'heated' ou 'match-point', le coup est légèrement plus affirmé.
    */
   public playMove(player: Player, tension: BoardTension = 'calm'): void {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const isMatchPoint = tension === 'match-point';
-    const jitter = 0.985 + Math.random() * 0.03;
+    const pitchJitter = 0.96 + Math.random() * 0.08;
+    const volJitter = 0.92 + Math.random() * 0.16;
+    const tensionMult =
+      tension === 'match-point' ? 1.28 : tension === 'heated' ? 1.14 : 1.0;
+    const level = volJitter * tensionMult;
 
-    // 1. Impact de contact très bref et aigu (14 ms — clic tactile sur plateau)
-    const noise = ctx.createBufferSource();
-    noise.buffer = this.getNoiseBuffer(ctx);
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    const baseClickFreq = (player === 'X' ? 3100 : 3700) * jitter;
-    filter.frequency.setValueAtTime(
-      isMatchPoint ? baseClickFreq * 1.12 : baseClickFreq,
-      now,
-    );
-    filter.Q.setValueAtTime(isMatchPoint ? 3.2 : 2.8, now);
+    // Timbre légèrement plus boisé/grave pour X, plus clair/sec pour O
+    const timber = (player === 'X' ? 0.96 : 1.06) * pitchJitter;
 
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(isMatchPoint ? 0.088 : 0.072, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
+    // Bus chaud passe-bas à 3,8 kHz
+    const masterFilter = ctx.createBiquadFilter();
+    masterFilter.type = 'lowpass';
+    masterFilter.frequency.setValueAtTime(3800, now);
+    masterFilter.Q.setValueAtTime(0.7, now);
+    masterFilter.connect(ctx.destination);
 
-    noise.connect(filter);
-    filter.connect(noiseGain);
-    noiseGain.connect(ctx.destination);
-    noise.start(now);
-    noise.stop(now + 0.02);
+    const scheduleWoodHit = (start: number, strength: number, isBounce: boolean) => {
+      // 1. Contact bref dans le médium (~10 ms)
+      const contact = ctx.createBufferSource();
+      contact.buffer = this.getNoiseBuffer(ctx);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(
+        (player === 'X' ? 1280 : 1540) * pitchJitter * (isBounce ? 1.12 : 1),
+        start,
+      );
+      bp.Q.setValueAtTime(1.6, start);
 
-    // 2. Résonance modale principale aiguë à fréquence fixe (pierre / céramique)
-    const primaryFreq = (player === 'X' ? 987.77 : 1174.66) * jitter;
-    const mainOsc = ctx.createOscillator();
-    mainOsc.type = 'sine';
-    mainOsc.frequency.setValueAtTime(primaryFreq, now);
+      const contactGain = ctx.createGain();
+      const contactDur = isBounce ? 0.009 : 0.011;
+      contactGain.gain.setValueAtTime(0.0008, start);
+      contactGain.gain.linearRampToValueAtTime(0.14 * strength, start + 0.0012);
+      contactGain.gain.exponentialRampToValueAtTime(0.0008, start + contactDur);
 
-    const mainGain = ctx.createGain();
-    mainGain.gain.setValueAtTime(0.001, now);
-    mainGain.gain.linearRampToValueAtTime(isMatchPoint ? 0.095 : 0.082, now + 0.0018);
-    mainGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
+      contact.connect(bp);
+      bp.connect(contactGain);
+      contactGain.connect(masterFilter);
+      contact.start(start);
+      contact.stop(start + contactDur + 0.006);
 
-    mainOsc.connect(mainGain);
-    mainGain.connect(ctx.destination);
-    mainOsc.start(now);
-    mainOsc.stop(now + 0.044);
+      // 2. Coup sourd et grave du plateau (~170 Hz, ~80 ms)
+      const thud = ctx.createOscillator();
+      thud.type = 'sine';
+      const thudFreq = 170 * timber * (isBounce ? 1.08 : 1);
+      thud.frequency.setValueAtTime(thudFreq, start);
+      thud.frequency.exponentialRampToValueAtTime(thudFreq * 0.74, start + (isBounce ? 0.032 : 0.055));
 
-    // 3. Partiel supérieur céramique (~2.42× fondamentale, extinction ultra-courte)
-    const overtoneOsc = ctx.createOscillator();
-    overtoneOsc.type = 'sine';
-    overtoneOsc.frequency.setValueAtTime(primaryFreq * 2.42, now);
+      const thudGain = ctx.createGain();
+      const thudDur = isBounce ? 0.044 : 0.082;
+      thudGain.gain.setValueAtTime(0.0008, start);
+      thudGain.gain.linearRampToValueAtTime(0.19 * strength, start + 0.0025);
+      thudGain.gain.exponentialRampToValueAtTime(0.0008, start + thudDur);
 
-    const overtoneGain = ctx.createGain();
-    overtoneGain.gain.setValueAtTime(0.001, now);
-    overtoneGain.gain.linearRampToValueAtTime(isMatchPoint ? 0.036 : 0.028, now + 0.0012);
-    overtoneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.016);
+      thud.connect(thudGain);
+      thudGain.connect(masterFilter);
+      thud.start(start);
+      thud.stop(start + thudDur + 0.01);
 
-    overtoneOsc.connect(overtoneGain);
-    overtoneGain.connect(ctx.destination);
-    overtoneOsc.start(now);
-    overtoneOsc.stop(now + 0.022);
+      // 3. Résonances courtes de la pièce en bois (~400 Hz, ~900 Hz, ~1,6 kHz)
+      const partials: readonly [number, number, number][] = isBounce
+        ? [
+            [420, 0.055, 0.024],
+            [940, 0.032, 0.013],
+          ]
+        : [
+            [400, 0.088, 0.044],
+            [900, 0.052, 0.024],
+            [1600, 0.028, 0.013],
+          ];
 
-    // 4. Très léger corps de table boisée pour ancrer le clic sans l'alourdir
-    const bodyOsc = ctx.createOscillator();
-    bodyOsc.type = 'sine';
-    bodyOsc.frequency.setValueAtTime((player === 'X' ? 587.33 : 659.25) * jitter, now);
+      for (const [baseFreq, amp, dur] of partials) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(baseFreq * timber, start);
 
-    const bodyGain = ctx.createGain();
-    bodyGain.gain.setValueAtTime(0.001, now);
-    bodyGain.gain.linearRampToValueAtTime(0.024, now + 0.002);
-    bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0008, start);
+        g.gain.linearRampToValueAtTime(amp * strength, start + 0.0015);
+        g.gain.exponentialRampToValueAtTime(0.0008, start + dur);
 
-    bodyOsc.connect(bodyGain);
-    bodyGain.connect(ctx.destination);
-    bodyOsc.start(now);
-    bodyOsc.stop(now + 0.028);
+        osc.connect(g);
+        g.connect(masterFilter);
+        osc.start(start);
+        osc.stop(start + dur + 0.008);
+      }
+    };
 
-    // 5. Tension élevée : fine brillance à l'octave supérieure (sans bourdonnement grave)
-    if (tension === 'heated' || isMatchPoint) {
-      this.tone(ctx, {
-        freq: primaryFreq * 2,
-        start: now + 0.003,
-        duration: isMatchPoint ? 0.075 : 0.055,
-        peak: isMatchPoint ? 0.024 : 0.016,
-        type: 'sine',
-      });
-    }
+    // Impact principal
+    scheduleWoodHit(now, level, false);
+
+    // Petit rebond de stabilisation 20 à 35 ms après
+    const bounceDelay = 0.02 + Math.random() * 0.015;
+    const bounceStrength = level * (0.28 + Math.random() * 0.09);
+    scheduleWoodHit(now + bounceDelay, bounceStrength, true);
   }
 
   /**

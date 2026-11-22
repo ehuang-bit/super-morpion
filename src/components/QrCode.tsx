@@ -12,16 +12,16 @@ interface QrCodeProps {
 const QUIET_ZONE = 4;
 
 /** Carte papier claire fixe pour garantir une lecture fiable même en thème sombre. */
-const PAPER_BG = '#FCFDFE';
+const PAPER_BG = '#F7F5F0';
 
-/** Encre sombre principale (contraste > 16:1 sur #FCFDFE). */
-const INK_DARK = '#161B26';
+/** Encre sombre principale (contraste > 13:1 sur #F7F5F0). */
+const INK_DARK = '#2B2926';
 
 /**
- * Encre outremer sombre pour le cœur du motif haut-gauche
- * (clin d'œil Craie & Outremer, contraste ~9:1 sur #FCFDFE, bien au-delà de 7:1).
+ * Encre vert mousse sombre pour le cœur du motif haut-gauche
+ * (clin d'œil Lin & Acier, contraste > 6,5:1 sur #F7F5F0).
  */
-const INK_FINDER_ACCENT = '#21458C';
+const INK_FINDER_ACCENT = '#3A612E';
 
 function isInFinderPattern(row: number, col: number, size: number): boolean {
   return (

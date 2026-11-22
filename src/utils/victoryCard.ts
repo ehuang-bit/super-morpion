@@ -31,7 +31,7 @@ const CARD_HEIGHT = 1350;
 const CARD_FILENAME = 'super-morpion-souvenir.png';
 
 const FONT_SANS =
-  "'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif";
+  "'Figtree', ui-sans-serif, system-ui, -apple-system, sans-serif";
 const FONT_MONO =
   "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
@@ -59,25 +59,25 @@ interface CardPalette {
 }
 
 const ATELIER_FALLBACK: Omit<CardPalette, 'isDark'> = {
-  bgCanvas: '#F3F5F8',
-  bgBoard: '#FCFDFE',
-  bgSurface: '#EFF2F6',
-  bgRecessed: '#E4E9F0',
-  borderMain: '#D2D8E2',
-  borderCell: '#E1E6EE',
-  borderStrong: '#B8C1CF',
-  textPrimary: '#161B26',
-  textSecondary: '#485163',
-  textMuted: '#5B6476',
-  xColor: '#21458C',
-  xSurface: '#E3EAF6',
-  oColor: '#8C2D45',
-  oSurface: '#F5E4E8',
-  drawSurface: '#E4E8EF',
-  accentActive: '#286452',
-  accentActiveBg: 'rgba(40, 100, 82, 0.11)',
-  accentActiveText: '#1C4E3F',
-  dangerColor: '#A62D38',
+  bgCanvas: '#EDEAE4',
+  bgBoard: '#F7F5F0',
+  bgSurface: '#EFECE6',
+  bgRecessed: '#E3DFD7',
+  borderMain: '#D7D2C8',
+  borderCell: '#E3DED5',
+  borderStrong: '#C2BCB0',
+  textPrimary: '#2B2926',
+  textSecondary: '#5B5750',
+  textMuted: '#68635B',
+  xColor: '#3D679A',
+  xSurface: '#E4ECF4',
+  oColor: '#B05634',
+  oSurface: '#F3E6DF',
+  drawSurface: '#E5E1D9',
+  accentActive: '#4E7D3F',
+  accentActiveBg: 'rgba(78, 125, 63, 0.13)',
+  accentActiveText: '#3A612E',
+  dangerColor: '#A63E33',
 };
 
 function parseRgb(color: string): [number, number, number] | null {

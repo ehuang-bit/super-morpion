@@ -385,7 +385,7 @@ export function MatchOutcome({
                   fontSize="44"
                   fontWeight="800"
                   fill={inkColor}
-                  fontFamily="'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif"
+                  fontFamily="'Figtree', ui-sans-serif, system-ui, sans-serif"
                 >
                   {(promotionLabel ?? '?').charAt(0)}
                 </text>
