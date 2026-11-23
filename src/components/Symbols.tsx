@@ -27,8 +27,23 @@ export function SymbolMark({
   className = '',
 }: SymbolProps) {
   const strokeWidth = STROKE_BY_SIZE[size];
-  const color = player === 'X' ? 'var(--x-color)' : 'var(--o-color)';
-  const surface = player === 'X' ? 'var(--x-surface)' : 'var(--o-surface)';
+  const color =
+    player === 'X' ? 'var(--x-color)' : 'var(--o-piece-color, var(--o-color))';
+  const outlineColor =
+    player === 'O' ? 'var(--o-piece-outline, transparent)' : 'transparent';
+  const outlineBoost = size === 'badge' ? 3.2 : 2.5;
+  const pionFill =
+    player === 'X'
+      ? 'var(--x-pion-fill, var(--x-surface))'
+      : 'var(--o-pion-fill, var(--o-surface))';
+  const pionRim =
+    player === 'X'
+      ? 'var(--x-pion-rim, var(--x-color))'
+      : 'var(--o-pion-rim, var(--o-color))';
+  const pionInk =
+    player === 'X'
+      ? 'var(--x-pion-ink, var(--x-color))'
+      : 'var(--o-pion-ink, var(--o-color))';
   const opacityClass = ghost ? 'opacity-35' : 'opacity-100';
   const shouldAnimate = animate && !ghost;
 
@@ -45,8 +60,8 @@ export function SymbolMark({
           cx="50"
           cy="50"
           r="40"
-          fill={surface}
-          stroke={color}
+          fill={pionFill}
+          stroke={pionRim}
           strokeWidth={size === 'badge' ? 7 : 6}
         />
         {player === 'X' ? (
@@ -56,7 +71,7 @@ export function SymbolMark({
               y1="33"
               x2="67"
               y2="67"
-              stroke={color}
+              stroke={pionInk}
               strokeWidth={innerStroke}
               strokeLinecap="round"
             />
@@ -65,7 +80,7 @@ export function SymbolMark({
               y1="33"
               x2="33"
               y2="67"
-              stroke={color}
+              stroke={pionInk}
               strokeWidth={innerStroke}
               strokeLinecap="round"
             />
@@ -76,7 +91,7 @@ export function SymbolMark({
             cy="50"
             r="17.5"
             fill="none"
-            stroke={color}
+            stroke={pionInk}
             strokeWidth={innerStroke}
           />
         )}
@@ -167,26 +182,49 @@ export function SymbolMark({
         aria-hidden="true"
       >
         {shouldAnimate ? (
-          <motion.path
-            d={ensoPath}
-            fill="none"
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            pathLength={100}
-            strokeDasharray={100}
-            initial={{ strokeDashoffset: 100, opacity: 0.45 }}
-            animate={{ strokeDashoffset: 0, opacity: 1 }}
-            transition={{ duration: 0.46, ease: SMOOTH_EASE }}
-          />
+          <>
+            <motion.path
+              d={ensoPath}
+              fill="none"
+              stroke={outlineColor}
+              strokeWidth={strokeWidth + outlineBoost}
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray={100}
+              initial={{ strokeDashoffset: 100, opacity: 0.45 }}
+              animate={{ strokeDashoffset: 0, opacity: 1 }}
+              transition={{ duration: 0.46, ease: SMOOTH_EASE }}
+            />
+            <motion.path
+              d={ensoPath}
+              fill="none"
+              stroke={color}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray={100}
+              initial={{ strokeDashoffset: 100, opacity: 0.45 }}
+              animate={{ strokeDashoffset: 0, opacity: 1 }}
+              transition={{ duration: 0.46, ease: SMOOTH_EASE }}
+            />
+          </>
         ) : (
-          <path
-            d={ensoPath}
-            fill="none"
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-          />
+          <>
+            <path
+              d={ensoPath}
+              fill="none"
+              stroke={outlineColor}
+              strokeWidth={strokeWidth + outlineBoost}
+              strokeLinecap="round"
+            />
+            <path
+              d={ensoPath}
+              fill="none"
+              stroke={color}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+            />
+          </>
         )}
       </svg>
     );
@@ -271,6 +309,20 @@ export function SymbolMark({
               cy="50"
               r="30"
               fill="none"
+              stroke={outlineColor}
+              strokeWidth={strokeWidth * 0.78 + outlineBoost}
+              transform="rotate(-90 50 50)"
+              pathLength={100}
+              strokeDasharray={100}
+              initial={{ strokeDashoffset: 100, opacity: 0.45 }}
+              animate={{ strokeDashoffset: 0, opacity: 1 }}
+              transition={{ duration: 0.38, ease: SMOOTH_EASE }}
+            />
+            <motion.circle
+              cx="50"
+              cy="50"
+              r="30"
+              fill="none"
               stroke={color}
               strokeWidth={strokeWidth * 0.78}
               transform="rotate(-90 50 50)"
@@ -285,16 +337,36 @@ export function SymbolMark({
               cy="50"
               r="15"
               fill="none"
+              stroke={outlineColor}
+              strokeWidth={strokeWidth * 0.55 + outlineBoost * 0.72}
+              opacity={0.75}
+              initial={{ scale: 0.65, opacity: 0 }}
+              animate={{ scale: 1, opacity: 0.75 }}
+              transition={{ duration: 0.26, delay: 0.2, ease: SMOOTH_EASE }}
+            />
+            <motion.circle
+              cx="50"
+              cy="50"
+              r="15"
+              fill="none"
               stroke={color}
               strokeWidth={strokeWidth * 0.55}
-              opacity={0.7}
+              opacity={0.85}
               initial={{ scale: 0.65, opacity: 0 }}
-              animate={{ scale: 1, opacity: 0.7 }}
+              animate={{ scale: 1, opacity: 0.85 }}
               transition={{ duration: 0.26, delay: 0.2, ease: SMOOTH_EASE }}
             />
           </>
         ) : (
           <>
+            <circle
+              cx="50"
+              cy="50"
+              r="30"
+              fill="none"
+              stroke={outlineColor}
+              strokeWidth={strokeWidth * 0.78 + outlineBoost}
+            />
             <circle
               cx="50"
               cy="50"
@@ -308,9 +380,18 @@ export function SymbolMark({
               cy="50"
               r="15"
               fill="none"
+              stroke={outlineColor}
+              strokeWidth={strokeWidth * 0.55 + outlineBoost * 0.72}
+              opacity={0.75}
+            />
+            <circle
+              cx="50"
+              cy="50"
+              r="15"
+              fill="none"
               stroke={color}
               strokeWidth={strokeWidth * 0.55}
-              opacity={0.7}
+              opacity={0.85}
             />
           </>
         )}
@@ -390,31 +471,59 @@ export function SymbolMark({
       aria-hidden="true"
     >
       {shouldAnimate ? (
-        <motion.circle
-          cx="50"
-          cy="50"
-          r="28"
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          transform="rotate(-90 50 50)"
-          pathLength={100}
-          strokeDasharray={100}
-          initial={{ strokeDashoffset: 100, opacity: 0.45 }}
-          animate={{ strokeDashoffset: 0, opacity: 1 }}
-          transition={{ duration: 0.42, ease: SMOOTH_EASE }}
-        />
+        <>
+          <motion.circle
+            cx="50"
+            cy="50"
+            r="28"
+            fill="none"
+            stroke={outlineColor}
+            strokeWidth={strokeWidth + outlineBoost}
+            strokeLinecap="round"
+            transform="rotate(-90 50 50)"
+            pathLength={100}
+            strokeDasharray={100}
+            initial={{ strokeDashoffset: 100, opacity: 0.45 }}
+            animate={{ strokeDashoffset: 0, opacity: 1 }}
+            transition={{ duration: 0.42, ease: SMOOTH_EASE }}
+          />
+          <motion.circle
+            cx="50"
+            cy="50"
+            r="28"
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            transform="rotate(-90 50 50)"
+            pathLength={100}
+            strokeDasharray={100}
+            initial={{ strokeDashoffset: 100, opacity: 0.45 }}
+            animate={{ strokeDashoffset: 0, opacity: 1 }}
+            transition={{ duration: 0.42, ease: SMOOTH_EASE }}
+          />
+        </>
       ) : (
-        <circle
-          cx="50"
-          cy="50"
-          r="28"
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-        />
+        <>
+          <circle
+            cx="50"
+            cy="50"
+            r="28"
+            fill="none"
+            stroke={outlineColor}
+            strokeWidth={strokeWidth + outlineBoost}
+            strokeLinecap="round"
+          />
+          <circle
+            cx="50"
+            cy="50"
+            r="28"
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+        </>
       )}
     </svg>
   );

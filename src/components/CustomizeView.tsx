@@ -271,7 +271,7 @@ export function CustomizeView({
             </div>
 
             <LayoutGroup id="theme-page">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {THEMES.map((item) => {
                   const selected = item.id === theme;
                   return (
@@ -303,20 +303,32 @@ export function CustomizeView({
                       )}
                       <span className="relative z-10 inline-flex items-center -space-x-1">
                         <span
-                          className="w-4 h-4 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.canvas }}
+                          className="w-4 h-4 rounded-full"
+                          style={{
+                            backgroundColor: item.swatches.canvas,
+                            border: '1px solid color-mix(in srgb, var(--text-primary) 28%, transparent)',
+                          }}
                         />
                         <span
-                          className="w-4 h-4 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.x }}
+                          className="w-4 h-4 rounded-full"
+                          style={{
+                            backgroundColor: item.swatches.x,
+                            border: '1px solid color-mix(in srgb, var(--text-primary) 28%, transparent)',
+                          }}
                         />
                         <span
-                          className="w-4 h-4 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.o }}
+                          className="w-4 h-4 rounded-full"
+                          style={{
+                            backgroundColor: item.swatches.o,
+                            border: '1px solid color-mix(in srgb, var(--text-primary) 28%, transparent)',
+                          }}
                         />
                         <span
-                          className="w-4 h-4 rounded-full border border-black/15"
-                          style={{ backgroundColor: item.swatches.active }}
+                          className="w-4 h-4 rounded-full"
+                          style={{
+                            backgroundColor: item.swatches.active,
+                            border: '1px solid color-mix(in srgb, var(--text-primary) 28%, transparent)',
+                          }}
                         />
                       </span>
                       <span className="relative z-10 text-xs font-bold leading-snug">

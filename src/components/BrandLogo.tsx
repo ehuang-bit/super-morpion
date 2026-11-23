@@ -75,8 +75,8 @@ export function BrandLogo({
             cx="20"
             cy="20"
             r="2.9"
-            fill="var(--o-surface)"
-            stroke="var(--o-color)"
+            fill="var(--o-pion-fill, var(--o-surface))"
+            stroke="var(--o-pion-rim, var(--o-color))"
             strokeWidth="2"
           />
         </svg>
@@ -146,8 +146,8 @@ export function BrandLogo({
                 cx="7"
                 cy="7"
                 r="4.7"
-                fill="var(--o-surface)"
-                stroke="var(--o-color)"
+                fill="var(--o-pion-fill, var(--o-surface))"
+                stroke="var(--o-pion-rim, var(--o-color))"
                 strokeWidth="2.3"
               />
             </svg>

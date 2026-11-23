@@ -50,6 +50,14 @@ interface CardPalette {
   xSurface: string;
   oColor: string;
   oSurface: string;
+  oPieceColor: string;
+  oPieceOutline: string;
+  xPionFill: string;
+  xPionRim: string;
+  xPionInk: string;
+  oPionFill: string;
+  oPionRim: string;
+  oPionInk: string;
   drawSurface: string;
   accentActive: string;
   accentActiveBg: string;
@@ -73,6 +81,14 @@ const ATELIER_FALLBACK: Omit<CardPalette, 'isDark'> = {
   xSurface: '#E4ECF4',
   oColor: '#B05634',
   oSurface: '#F3E6DF',
+  oPieceColor: '#B05634',
+  oPieceOutline: 'transparent',
+  xPionFill: '#E4ECF4',
+  xPionRim: '#3D679A',
+  xPionInk: '#3D679A',
+  oPionFill: '#F3E6DF',
+  oPionRim: '#B05634',
+  oPionInk: '#B05634',
   drawSurface: '#E5E1D9',
   accentActive: '#4E7D3F',
   accentActiveBg: 'rgba(78, 125, 63, 0.13)',
@@ -138,6 +154,11 @@ function readActivePalette(): CardPalette {
 
   const bgCanvas = pick('--bg-canvas', ATELIER_FALLBACK.bgCanvas);
 
+  const xColor = pick('--x-color', ATELIER_FALLBACK.xColor);
+  const xSurface = pick('--x-surface', ATELIER_FALLBACK.xSurface);
+  const oColor = pick('--o-color', ATELIER_FALLBACK.oColor);
+  const oSurface = pick('--o-surface', ATELIER_FALLBACK.oSurface);
+
   return {
     bgCanvas,
     bgBoard: pick('--bg-board', ATELIER_FALLBACK.bgBoard),
@@ -149,10 +170,18 @@ function readActivePalette(): CardPalette {
     textPrimary: pick('--text-primary', ATELIER_FALLBACK.textPrimary),
     textSecondary: pick('--text-secondary', ATELIER_FALLBACK.textSecondary),
     textMuted: pick('--text-muted', ATELIER_FALLBACK.textMuted),
-    xColor: pick('--x-color', ATELIER_FALLBACK.xColor),
-    xSurface: pick('--x-surface', ATELIER_FALLBACK.xSurface),
-    oColor: pick('--o-color', ATELIER_FALLBACK.oColor),
-    oSurface: pick('--o-surface', ATELIER_FALLBACK.oSurface),
+    xColor,
+    xSurface,
+    oColor,
+    oSurface,
+    oPieceColor: pick('--o-piece-color', oColor),
+    oPieceOutline: pick('--o-piece-outline', 'transparent'),
+    xPionFill: pick('--x-pion-fill', xSurface),
+    xPionRim: pick('--x-pion-rim', xColor),
+    xPionInk: pick('--x-pion-ink', xColor),
+    oPionFill: pick('--o-pion-fill', oSurface),
+    oPionRim: pick('--o-pion-rim', oColor),
+    oPionInk: pick('--o-pion-ink', oColor),
     drawSurface: pick('--draw-surface', ATELIER_FALLBACK.drawSurface),
     accentActive: pick('--accent-active', ATELIER_FALLBACK.accentActive),
     accentActiveBg: pick('--accent-active-bg', ATELIER_FALLBACK.accentActiveBg),
@@ -378,8 +407,12 @@ function drawPiece(
   variant: 'cell' | 'captured' | 'badge',
   palette: CardPalette,
 ): void {
-  const color = player === 'X' ? palette.xColor : palette.oColor;
-  const surface = player === 'X' ? palette.xSurface : palette.oSurface;
+  const color = player === 'X' ? palette.xColor : palette.oPieceColor;
+  const hasOutline =
+    player === 'O' &&
+    palette.oPieceOutline !== 'transparent' &&
+    palette.oPieceOutline.length > 0;
+  const outlineBoost = size * (variant === 'badge' ? 0.032 : 0.025);
   const strokeRatio =
     variant === 'badge' ? 0.112 : variant === 'captured' ? 0.084 : 0.098;
   const strokeWidth = size * strokeRatio;
@@ -390,15 +423,18 @@ function drawPiece(
 
   if (pieceStyle === 'pions') {
     const innerStroke = size * (variant === 'badge' ? 0.095 : 0.078);
+    const fill = player === 'X' ? palette.xPionFill : palette.oPionFill;
+    const rim = player === 'X' ? palette.xPionRim : palette.oPionRim;
+    const ink = player === 'X' ? palette.xPionInk : palette.oPionInk;
     ctx.beginPath();
     ctx.arc(u(50), u(50), u(40), 0, Math.PI * 2);
-    ctx.fillStyle = surface;
+    ctx.fillStyle = fill;
     ctx.fill();
     ctx.lineWidth = size * (variant === 'badge' ? 0.07 : 0.06);
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = rim;
     ctx.stroke();
 
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = ink;
     ctx.lineWidth = innerStroke;
     ctx.lineCap = 'round';
     if (player === 'X') {
@@ -418,10 +454,10 @@ function drawPiece(
   }
 
   if (pieceStyle === 'calligraphie') {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = strokeWidth;
     ctx.lineCap = 'round';
     if (player === 'X') {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
       ctx.beginPath();
       ctx.moveTo(u(22), u(25));
       ctx.quadraticCurveTo(u(49), u(48), u(77), u(77));
@@ -433,6 +469,15 @@ function drawPiece(
       ctx.stroke();
     } else {
       // Cercle ensō légèrement ouvert près du sommet gauche
+      if (hasOutline) {
+        ctx.strokeStyle = palette.oPieceOutline;
+        ctx.lineWidth = strokeWidth + outlineBoost;
+        ctx.beginPath();
+        ctx.arc(u(50), u(50), u(29), -Math.PI * 0.45, Math.PI * 1.36, false);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
       ctx.beginPath();
       ctx.arc(u(50), u(50), u(29), -Math.PI * 0.45, Math.PI * 1.36, false);
       ctx.stroke();
@@ -442,8 +487,8 @@ function drawPiece(
   }
 
   if (pieceStyle === 'geometrique') {
-    ctx.strokeStyle = color;
     if (player === 'X') {
+      ctx.strokeStyle = color;
       ctx.lineWidth = strokeWidth * 0.92;
       ctx.lineCap = 'square';
       ctx.beginPath();
@@ -453,13 +498,29 @@ function drawPiece(
       ctx.lineTo(u(22), u(78));
       ctx.stroke();
     } else {
+      if (hasOutline) {
+        ctx.strokeStyle = palette.oPieceOutline;
+        ctx.lineWidth = strokeWidth * 0.78 + outlineBoost;
+        ctx.beginPath();
+        ctx.arc(u(50), u(50), u(30), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = color;
       ctx.lineWidth = strokeWidth * 0.78;
       ctx.beginPath();
       ctx.arc(u(50), u(50), u(30), 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.save();
-      ctx.globalAlpha *= 0.7;
+      ctx.globalAlpha *= 0.8;
+      if (hasOutline) {
+        ctx.strokeStyle = palette.oPieceOutline;
+        ctx.lineWidth = strokeWidth * 0.55 + outlineBoost * 0.72;
+        ctx.beginPath();
+        ctx.arc(u(50), u(50), u(15), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = color;
       ctx.lineWidth = strokeWidth * 0.55;
       ctx.beginPath();
       ctx.arc(u(50), u(50), u(15), 0, Math.PI * 2);
@@ -471,10 +532,10 @@ function drawPiece(
   }
 
   // Style classique : traits arrondis fluides
-  ctx.strokeStyle = color;
-  ctx.lineWidth = strokeWidth;
   ctx.lineCap = 'round';
   if (player === 'X') {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = strokeWidth;
     ctx.beginPath();
     ctx.moveTo(u(23), u(23));
     ctx.lineTo(u(77), u(77));
@@ -482,6 +543,15 @@ function drawPiece(
     ctx.lineTo(u(23), u(77));
     ctx.stroke();
   } else {
+    if (hasOutline) {
+      ctx.strokeStyle = palette.oPieceOutline;
+      ctx.lineWidth = strokeWidth + outlineBoost;
+      ctx.beginPath();
+      ctx.arc(u(50), u(50), u(28), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = strokeWidth;
     ctx.beginPath();
     ctx.arc(u(50), u(50), u(28), 0, Math.PI * 2);
     ctx.stroke();

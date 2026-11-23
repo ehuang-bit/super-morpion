@@ -6,7 +6,8 @@ export type ThemeId =
   | 'kyoto'
   | 'nocturne'
   | 'emeraude'
-  | 'obsidienne';
+  | 'obsidienne'
+  | 'ebene';
 
 export interface ThemeMeta {
   id: ThemeId;
@@ -109,6 +110,17 @@ export const THEMES: readonly ThemeMeta[] = [
       active: '#8EB668',
     },
   },
+  {
+    id: 'ebene',
+    label: 'Ébène & Échecs',
+    description: 'Interface noire velours, or champagne et pions beige & noir d’échecs',
+    swatches: {
+      canvas: '#141210',
+      x: '#E6D8BE',
+      o: '#11100E',
+      active: '#DFB977',
+    },
+  },
 ];
 
 export function isValidThemeId(value: string | null): value is ThemeId {
@@ -120,7 +132,8 @@ export function isValidThemeId(value: string | null): value is ThemeId {
     value === 'kyoto' ||
     value === 'nocturne' ||
     value === 'emeraude' ||
-    value === 'obsidienne'
+    value === 'obsidienne' ||
+    value === 'ebene'
   );
 }
 

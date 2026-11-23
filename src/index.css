@@ -32,6 +32,14 @@
   --shadow-card: 0 1px 2px rgba(43, 41, 38, 0.05), 0 6px 20px rgba(43, 41, 38, 0.05);
   --shadow-board: 0 2px 6px rgba(43, 41, 38, 0.06), 0 14px 36px rgba(43, 41, 38, 0.07);
   --shadow-active: 0 2px 8px rgba(43, 41, 38, 0.12);
+  --o-piece-color: var(--o-color);
+  --o-piece-outline: transparent;
+  --x-pion-fill: var(--x-surface);
+  --x-pion-rim: var(--x-color);
+  --x-pion-ink: var(--x-color);
+  --o-pion-fill: var(--o-surface);
+  --o-pion-rim: var(--o-color);
+  --o-pion-ink: var(--o-color);
 }
 
 :root[data-theme='argile'] {
@@ -249,6 +257,60 @@
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.36), 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-board: 0 2px 8px rgba(0, 0, 0, 0.44), 0 18px 42px rgba(0, 0, 0, 0.38);
   --shadow-active: 0 4px 12px rgba(0, 0, 0, 0.38);
+}
+
+:root[data-theme='ebene'] {
+  /* Ébène & Échecs — interface noire velours & or champagne, pions beige ivoire et noir d'échecs */
+  --bg-canvas: #141210;
+  --bg-board: #221E1A;
+  --bg-surface: #2C2722;
+  --bg-surface-hover: #36302A;
+  --bg-recessed: #191614;
+  --border-main: #3C362D;
+  --border-cell: #332D26;
+  --border-strong: #584E40;
+  --text-primary: #F6F2E9;
+  --text-secondary: #C8BEAE;
+  --text-muted: #A49987;
+  --btn-primary-bg: #F3EDE0;
+  --btn-primary-hover: #E5DCCB;
+  --btn-primary-text: #161311;
+  --x-color: #EDE1C9;
+  --x-surface: #342E24;
+  --o-color: #B3A795;
+  --o-surface: #34302B;
+  --o-piece-color: #070606;
+  --o-piece-outline: #9A8D7A;
+  --x-pion-fill: #EDE1C9;
+  --x-pion-rim: #C9B99B;
+  --x-pion-ink: #1A1714;
+  --o-pion-fill: #0B0A09;
+  --o-pion-rim: #B8AA94;
+  --o-pion-ink: #C9BBA4;
+  --draw-surface: #25221E;
+  --accent-active: #DFB977;
+  --accent-active-bg: rgba(223, 185, 119, 0.16);
+  --accent-active-text: #ECD098;
+  --danger-color: #E38479;
+  --danger-bg: rgba(227, 132, 121, 0.15);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.44), 0 12px 32px rgba(0, 0, 0, 0.38);
+  --shadow-board: 0 4px 14px rgba(0, 0, 0, 0.54), 0 22px 54px rgba(0, 0, 0, 0.46);
+  --shadow-active: 0 0 0 4px rgba(223, 185, 119, 0.14), 0 6px 18px rgba(0, 0, 0, 0.44);
+}
+
+/* Ambiance studio velours noir & filet or champagne inspirée de la vidéo */
+:root[data-theme='ebene'] body {
+  background-image: radial-gradient(
+    ellipse 85% 68% at 50% 38%,
+    #231F1B 0%,
+    #151311 58%,
+    #0E0C0B 100%
+  );
+  background-attachment: fixed;
+}
+
+:root[data-theme='ebene'] .board-shell {
+  border-color: rgba(223, 185, 119, 0.28) !important;
 }
 
 .no-transitions *,
