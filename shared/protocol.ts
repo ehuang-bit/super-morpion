@@ -151,6 +151,77 @@ export interface RoomSnapshot {
     X: EloMatchDelta;
     O: EloMatchDelta;
   } | null;
+  /** Présent si ce salon appartient à un tournoi à élimination directe. */
+  tournament?: RoomTournamentMeta | null;
+}
+
+export type TournamentSize = 4 | 8 | 16;
+
+export type TournamentPhase = 'lobby' | 'running' | 'finished';
+
+/** Clé de phase du tableau (traduite côté interface). */
+export type TournamentRoundKey = 'r16' | 'qf' | 'sf' | 'final';
+
+export interface RoomTournamentMeta {
+  code: string;
+  name: string;
+  matchId: string;
+  roundKey: TournamentRoundKey;
+}
+
+export interface TournamentParticipant {
+  id: string;
+  profileKey: string;
+  pseudo: string;
+  elo: number;
+  tier: string;
+  seed: number;
+  joinedAt: number;
+}
+
+export type TournamentMatchStatus =
+  | 'pending'
+  | 'ready'
+  | 'live'
+  | 'finished'
+  | 'bye';
+
+export interface TournamentMatch {
+  id: string;
+  roundIndex: number;
+  matchIndex: number;
+  roundKey: TournamentRoundKey;
+  playerA: TournamentParticipant | null;
+  playerB: TournamentParticipant | null;
+  status: TournamentMatchStatus;
+  roomCode: string | null;
+  winnerId: string | null;
+  endReason: EndReason | 'forfeit' | 'bye' | null;
+  needsTiebreak?: boolean;
+  finishedAt: number | null;
+}
+
+export interface TournamentRound {
+  roundIndex: number;
+  roundKey: TournamentRoundKey;
+  matches: TournamentMatch[];
+}
+
+export interface TournamentSnapshot {
+  code: string;
+  name: string;
+  size: TournamentSize;
+  timeControl: TimeControl;
+  phase: TournamentPhase;
+  hostId: string;
+  participants: TournamentParticipant[];
+  rounds: TournamentRound[];
+  championId: string | null;
+  runnerUpId: string | null;
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  serverNow: number;
 }
 
 export interface RoomPeekInfo {

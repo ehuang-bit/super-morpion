@@ -6,7 +6,8 @@ import {
   type GameState,
   type Move,
 } from '@shared/gameEngine';
-import { ArrowLeft, Eye, Palette, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Eye, Globe, Palette, RotateCcw } from 'lucide-react';
+import { useI18n } from '../i18n';
 import {
   BOARD_MATERIALS,
   BOARD_SHAPES,
@@ -24,6 +25,7 @@ import { haptics } from '../utils/haptics';
 import { CHIP_SPRING } from '../utils/motion';
 import { soundEngine } from '../utils/soundEngine';
 import { GlobalBoard } from './GlobalBoard';
+import { LanguageSelector } from './LanguageSelector';
 import { SymbolMark } from './Symbols';
 
 interface CustomizeViewProps {
@@ -78,6 +80,7 @@ export function CustomizeView({
   hapticsEnabled,
   onToggleHaptics,
 }: CustomizeViewProps) {
+  const { t } = useI18n();
   const [previewState, setPreviewState] = useState<GameState>(() =>
     buildShowcaseState(),
   );
@@ -132,15 +135,14 @@ export function CustomizeView({
               className="text-xl sm:text-2xl font-bold tracking-tight"
               style={{ color: 'var(--text-primary)' }}
             >
-              Couleurs & plateau
+              {t('cust.title')}
             </h1>
           </div>
           <p
             className="text-xs sm:text-sm mt-0.5"
             style={{ color: 'var(--text-secondary)' }}
           >
-            Palette, style des pièces, matière et aides visuelles — sauvegardé
-            automatiquement.
+            {t('cust.subtitle')}
           </p>
         </div>
 
@@ -160,7 +162,7 @@ export function CustomizeView({
             }}
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Réinitialiser</span>
+            <span>{t('common.reset')}</span>
           </button>
 
           <button
@@ -173,7 +175,7 @@ export function CustomizeView({
             }}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>{inActiveMatch ? 'Retour à la partie' : 'Retour au plateau'}</span>
+            <span>{inActiveMatch ? t('cust.backToMatch') : t('cust.backToBoard')}</span>
           </button>
         </div>
       </div>
@@ -247,6 +249,32 @@ export function CustomizeView({
 
         {/* Sections de personnalisation */}
         <div className="flex flex-col gap-4 min-w-0">
+          {/* 0. Langue de l'interface (11 langues) */}
+          <section
+            aria-labelledby="customize-language-heading"
+            className="rounded-[16px] p-4 sm:p-5 flex flex-col gap-3"
+            style={{
+              backgroundColor: 'var(--bg-board)',
+              border: '1px solid var(--border-main)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2
+                id="customize-language-heading"
+                className="text-sm font-bold inline-flex items-center gap-1.5"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                <Globe className="w-4 h-4" style={{ color: 'var(--accent-active-text)' }} />
+                <span>{t('cust.languageTitle')}</span>
+              </h2>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {t('cust.languageSub')}
+              </span>
+            </div>
+            <LanguageSelector variant="grid" />
+          </section>
+
           {/* 1. Palettes de couleurs */}
           <section
             aria-labelledby="customize-palettes-heading"
@@ -263,7 +291,7 @@ export function CustomizeView({
                 className="text-sm font-bold"
                 style={{ color: 'var(--text-primary)' }}
               >
-                Palette de couleurs
+                {t('cust.paletteTitle')}
               </h2>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 {activeThemeMeta.description}

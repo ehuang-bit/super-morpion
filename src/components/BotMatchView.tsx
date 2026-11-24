@@ -38,6 +38,7 @@ import type { BoardPreferences } from '../types/boardPrefs';
 import { getBoardTension } from '../utils/boardTension';
 import { loadBotProgress, saveBotProgress } from '../utils/botStorage';
 import { haptics } from '../utils/haptics';
+import { useI18n } from '../i18n';
 import { CHIP_SPRING, SMOOTH_EASE } from '../utils/motion';
 import { soundEngine } from '../utils/soundEngine';
 import type { VictoryCardData } from '../utils/victoryCard';
@@ -72,6 +73,7 @@ export function BotMatchView({
   onBackToPlay,
   onProgressChange,
 }: BotMatchViewProps) {
+  const { t, translateTier } = useI18n();
   const effectivePlayerElo = playerElo?.rating ?? INITIAL_ELO;
   const calibratedLevel = useMemo(
     () => calibrateBotLevelFromElo(effectivePlayerElo),
@@ -474,7 +476,7 @@ export function BotMatchView({
             aria-label="Retour au jeu"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Jouer</span>
+            <span className="hidden sm:inline">{t('common.play')}</span>
           </button>
 
           <div className="flex items-center gap-2 min-w-0">
@@ -487,7 +489,7 @@ export function BotMatchView({
               className="text-lg sm:text-xl font-bold tracking-tight truncate"
               style={{ color: 'var(--text-primary)' }}
             >
-              Bot adaptatif
+              {t('bot.title')}
             </h1>
           </div>
 
@@ -499,11 +501,14 @@ export function BotMatchView({
               border: '1px solid var(--accent-active)',
             }}
           >
-            <span>Niv. {activeMatchLevel}/10</span>
+            <span>
+              {t('bot.levelBadge', {
+                level: activeMatchLevel,
+                elo: matchProfile.elo,
+              })}
+            </span>
             <span>·</span>
-            <span className="font-sans">{matchProfile.label}</span>
-            <span>·</span>
-            <span>{matchProfile.elo}</span>
+            <span className="font-sans">{translateTier(matchProfile.label)}</span>
           </span>
         </div>
 

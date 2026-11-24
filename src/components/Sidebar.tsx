@@ -1,10 +1,10 @@
 import { LayoutGroup, motion } from 'framer-motion';
 import type { AuthUser } from '@shared/protocol';
-import { BrandLogo } from './BrandLogo';
 import {
   BarChart3,
   BookOpen,
   Bot,
+  Crown,
   LogIn,
   LogOut,
   Palette,
@@ -17,10 +17,20 @@ import {
   VolumeX,
   type LucideIcon,
 } from 'lucide-react';
+import { useI18n, type TranslationKey } from '../i18n';
 import { CHIP_SPRING } from '../utils/motion';
+import { BrandLogo } from './BrandLogo';
+import { LanguageSelector } from './LanguageSelector';
 import { StreakPill } from './StreakBadge';
 
-export type NavTab = 'play' | 'bot' | 'daily' | 'stats' | 'leaderboard' | 'customize';
+export type NavTab =
+  | 'play'
+  | 'tournament'
+  | 'bot'
+  | 'daily'
+  | 'stats'
+  | 'leaderboard'
+  | 'customize';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -36,18 +46,24 @@ interface SidebarProps {
   onToggleHaptics: () => void;
   connected: boolean;
   inActiveMatch: boolean;
+  inActiveTournament?: boolean;
 }
 
 type NavItemId = NavTab | 'rules';
 
-const NAV_ITEMS: readonly { id: NavItemId; label: string; icon: LucideIcon }[] = [
-  { id: 'play', label: 'Plateau & Duel', icon: Swords },
-  { id: 'bot', label: 'Bot adaptatif', icon: Bot },
-  { id: 'daily', label: 'Défi du jour', icon: Target },
-  { id: 'stats', label: 'Mes statistiques', icon: BarChart3 },
-  { id: 'leaderboard', label: 'Classement général', icon: Trophy },
-  { id: 'customize', label: 'Couleurs & plateau', icon: Palette },
-  { id: 'rules', label: 'Règles en 15s', icon: BookOpen },
+const NAV_ITEMS: readonly {
+  id: NavItemId;
+  labelKey: TranslationKey;
+  icon: LucideIcon;
+}[] = [
+  { id: 'play', labelKey: 'nav.play', icon: Swords },
+  { id: 'tournament', labelKey: 'nav.tournament', icon: Crown },
+  { id: 'bot', labelKey: 'nav.bot', icon: Bot },
+  { id: 'daily', labelKey: 'nav.daily', icon: Target },
+  { id: 'stats', labelKey: 'nav.stats', icon: BarChart3 },
+  { id: 'leaderboard', labelKey: 'nav.leaderboard', icon: Trophy },
+  { id: 'customize', labelKey: 'nav.customize', icon: Palette },
+  { id: 'rules', labelKey: 'nav.rules', icon: BookOpen },
 ];
 
 export function Sidebar({
@@ -64,41 +80,46 @@ export function Sidebar({
   onToggleHaptics,
   connected,
   inActiveMatch,
+  inActiveTournament = false,
 }: SidebarProps) {
-  const displayName = user?.username || pseudo.trim() || 'Invité';
+  const { t } = useI18n();
+  const displayName = user?.username || pseudo.trim() || t('nav.guest');
   const initial = displayName.charAt(0).toUpperCase() || 'J';
 
   return (
     <>
       {/* Desktop persistent left sidebar */}
       <aside
-        aria-label="Barre latérale"
+        aria-label="Sidebar"
         className="hidden lg:flex flex-col w-[236px] xl:w-[252px] shrink-0 h-[100dvh] sticky top-0"
         style={{
           backgroundColor: 'var(--bg-board)',
-          borderRight: '1px solid var(--border-main)',
+          borderInlineEnd: '1px solid var(--border-main)',
         }}
       >
         <LayoutGroup id="sidebar-desktop">
-          <div className="flex flex-col justify-between h-full p-3.5 gap-4 select-none">
+          <div className="flex flex-col justify-between h-full p-3.5 gap-3 select-none">
             {/* Top: Brand + Primary Navigation */}
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3.5 min-h-0">
               <div className="flex items-center justify-between gap-2 px-1">
                 <button
                   type="button"
                   onClick={() => onSelectTab('play')}
                   aria-label="Super Morpion"
-                  className="flex items-center text-left group min-w-0"
+                  className="flex items-center text-start group min-w-0"
                 >
                   <BrandLogo variant="sidebar" connected={connected} />
                 </button>
               </div>
 
               {/* Navigation links */}
-              <nav className="flex flex-col gap-1" aria-label="Navigation principale">
+              <nav className="flex flex-col gap-1" aria-label="Main navigation">
                 {NAV_ITEMS.map((item) => {
                   const active = item.id !== 'rules' && activeTab === item.id;
                   const Icon = item.icon;
+                  const showBadge =
+                    (item.id === 'play' && inActiveMatch) ||
+                    (item.id === 'tournament' && inActiveTournament);
                   return (
                     <button
                       key={item.id}
@@ -108,13 +129,12 @@ export function Sidebar({
                         else onSelectTab(item.id);
                       }}
                       aria-current={active ? 'page' : undefined}
-                      className="tactile-btn relative w-full rounded-[10px] px-3 py-2.5 text-xs font-semibold flex items-center justify-between gap-2"
+                      className="tactile-btn relative w-full rounded-[10px] px-3 py-2 text-xs font-semibold flex items-center justify-between gap-2"
                       style={{
                         color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
                       }}
                     >
                       {active && (
-                        // Fond de l'onglet actif : glisse d'une entrée à l'autre
                         <motion.span
                           layoutId="nav-active"
                           transition={CHIP_SPRING}
@@ -126,25 +146,27 @@ export function Sidebar({
                           }}
                         />
                       )}
-                      <span className="relative inline-flex items-center gap-2.5">
+                      <span className="relative inline-flex items-center gap-2.5 min-w-0">
                         <Icon
                           className="w-4 h-4 shrink-0"
                           style={{
-                            color: active ? 'var(--accent-active-text)' : 'var(--text-muted)',
+                            color: active
+                              ? 'var(--accent-active-text)'
+                              : 'var(--text-muted)',
                           }}
                           strokeWidth={1.9}
                         />
-                        <span>{item.label}</span>
+                        <span className="truncate">{t(item.labelKey)}</span>
                       </span>
-                      {item.id === 'play' && inActiveMatch && (
+                      {showBadge && (
                         <span
-                          className="relative rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+                          className="relative shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold"
                           style={{
                             backgroundColor: 'var(--accent-active-bg)',
                             color: 'var(--accent-active-text)',
                           }}
                         >
-                          En cours
+                          {t('nav.inProgress')}
                         </span>
                       )}
                     </button>
@@ -153,10 +175,10 @@ export function Sidebar({
               </nav>
             </div>
 
-            {/* Bottom: Account / Guest card + Audio & Haptics controls */}
-            <div className="flex flex-col gap-2.5">
+            {/* Bottom: Account card + Language selector + Audio & Haptics */}
+            <div className="flex flex-col gap-2">
               <div
-                className="rounded-[12px] p-3 flex flex-col gap-2.5"
+                className="rounded-[12px] p-2.5 flex flex-col gap-2"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border-main)',
@@ -194,7 +216,7 @@ export function Sidebar({
                           color: user ? 'var(--x-color)' : 'var(--text-muted)',
                         }}
                       >
-                        {user ? 'Compte' : 'Invité'}
+                        {user ? t('nav.account') : t('nav.guest')}
                       </span>
                     </div>
                     {user?.streak && (
@@ -223,13 +245,13 @@ export function Sidebar({
                       }}
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      <span>Mon profil</span>
+                      <span>{t('nav.myProfile')}</span>
                     </button>
                     <button
                       type="button"
                       onClick={onLogout}
-                      title="Se déconnecter"
-                      aria-label="Se déconnecter"
+                      title={t('nav.signOut')}
+                      aria-label={t('nav.signOut')}
                       className="tactile-btn rounded-lg px-2.5 py-1.5 text-[11px] font-semibold inline-flex items-center justify-center gap-1"
                       style={{
                         backgroundColor: 'var(--bg-board)',
@@ -251,18 +273,21 @@ export function Sidebar({
                     }}
                   >
                     <LogIn className="w-3.5 h-3.5" />
-                    <span>Se connecter / S’inscrire</span>
+                    <span className="truncate">{t('nav.signIn')}</span>
                   </button>
                 )}
               </div>
+
+              {/* 11-Language Selector */}
+              <LanguageSelector variant="sidebar" />
 
               {/* Sound & Haptics row */}
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   onClick={onToggleMute}
-                  aria-label={muted ? 'Activer le son' : 'Couper le son'}
-                  className="tactile-btn rounded-lg px-2.5 py-1.5 text-[11px] font-medium inline-flex items-center justify-center gap-1.5"
+                  aria-label={muted ? t('nav.soundOff') : t('nav.soundOn')}
+                  className="tactile-btn rounded-lg px-2 py-1.5 text-[11px] font-medium inline-flex items-center justify-center gap-1.5"
                   style={{
                     backgroundColor: 'var(--bg-surface)',
                     color: muted ? 'var(--text-muted)' : 'var(--text-primary)',
@@ -270,18 +295,20 @@ export function Sidebar({
                   }}
                 >
                   {muted ? (
-                    <VolumeX className="w-3.5 h-3.5" />
+                    <VolumeX className="w-3.5 h-3.5 shrink-0" />
                   ) : (
-                    <Volume2 className="w-3.5 h-3.5" />
+                    <Volume2 className="w-3.5 h-3.5 shrink-0" />
                   )}
-                  <span>{muted ? 'Son coupé' : 'Son actif'}</span>
+                  <span className="truncate">
+                    {muted ? t('nav.soundOff') : t('nav.soundOn')}
+                  </span>
                 </button>
 
                 <button
                   type="button"
                   onClick={onToggleHaptics}
                   aria-pressed={hapticsEnabled}
-                  className="tactile-btn rounded-lg px-2.5 py-1.5 text-[11px] font-medium inline-flex items-center justify-center gap-1.5"
+                  className="tactile-btn rounded-lg px-2 py-1.5 text-[11px] font-medium inline-flex items-center justify-center gap-1.5"
                   style={{
                     backgroundColor: 'var(--bg-surface)',
                     color: hapticsEnabled
@@ -290,8 +317,10 @@ export function Sidebar({
                     border: '1px solid var(--border-cell)',
                   }}
                 >
-                  <Vibrate className="w-3.5 h-3.5" />
-                  <span>{hapticsEnabled ? 'Haptique' : 'Silencieux'}</span>
+                  <Vibrate className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {hapticsEnabled ? t('nav.hapticsOn') : t('nav.hapticsOff')}
+                  </span>
                 </button>
               </div>
             </div>
@@ -319,12 +348,14 @@ export function Sidebar({
         </button>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          <LanguageSelector variant="header" />
+
           <button
             type="button"
             onClick={onToggleMute}
-            aria-label={muted ? 'Activer le son' : 'Couper le son'}
+            aria-label={muted ? t('nav.soundOff') : t('nav.soundOn')}
             aria-pressed={!muted}
-            title={muted ? 'Activer le son' : 'Couper le son'}
+            title={muted ? t('nav.soundOff') : t('nav.soundOn')}
             className="tactile-btn inline-flex items-center justify-center w-10 h-10 rounded-lg"
             style={{
               backgroundColor: 'var(--bg-surface)',
@@ -342,8 +373,8 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenRules}
-            aria-label="Règles du jeu"
-            title="Règles du jeu"
+            aria-label={t('nav.rules')}
+            title={t('nav.rules')}
             className="tactile-btn inline-flex items-center justify-center w-10 h-10 rounded-lg"
             style={{
               backgroundColor: 'var(--bg-surface)',
@@ -374,20 +405,20 @@ export function Sidebar({
               }}
             >
               <UserCheck className="w-3.5 h-3.5" />
-              <span className="max-w-[96px] truncate">{user.username}</span>
+              <span className="max-w-[84px] truncate">{user.username}</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={onOpenAuth}
-              className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold"
+              className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
               style={{
                 backgroundColor: 'var(--btn-primary-bg)',
                 color: 'var(--btn-primary-text)',
               }}
             >
               <LogIn className="w-3.5 h-3.5" />
-              <span>Connexion</span>
+              <span>{t('nav.connect')}</span>
             </button>
           )}
         </div>

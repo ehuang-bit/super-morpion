@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import type { AuthUser, LeaderboardPayload } from '@shared/protocol';
 import { Crown, Flame, LogIn, Medal, RefreshCw, Swords, Trophy } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { AnimatedNumber } from './AnimatedNumber';
 
 interface LeaderboardViewProps {
@@ -22,6 +23,7 @@ export function LeaderboardView({
   onOpenAuth,
   onPlay,
 }: LeaderboardViewProps) {
+  const { t } = useI18n();
   const entries = data?.entries ?? [];
   const minGames = data?.minGames ?? 3;
 
@@ -34,11 +36,10 @@ export function LeaderboardView({
             style={{ color: 'var(--text-primary)' }}
           >
             <Trophy className="w-6 h-6" style={{ color: 'var(--accent-active)' }} />
-            Classement général
+            {t('lb.title')}
           </h1>
           <p className="text-xs sm:text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-            Classement Glicko-2 des comptes ayant joué au moins {minGames} parties.
-            Un « ? » signale un classement encore provisoire.
+            {t('lb.subtitle')}
           </p>
         </div>
         <button
@@ -53,7 +54,7 @@ export function LeaderboardView({
           }}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>Actualiser</span>
+          <span>{t('common.refresh')}</span>
         </button>
       </div>
 

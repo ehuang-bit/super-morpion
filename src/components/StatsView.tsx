@@ -137,8 +137,8 @@ export function StatsView({
   const ratings = eloHistory.map((p) => p.rating);
   const observedMin = Math.min(...ratings);
   const observedMax = Math.max(...ratings);
-  const minRating = Math.min(observedMin, 1150) - 20;
-  const maxRating = Math.max(observedMax, 1250) + 20;
+  const minRating = Math.min(observedMin, 250) - 20;
+  const maxRating = Math.max(observedMax, 350) + 20;
   const midRating = Math.round((minRating + maxRating) / 2);
   const ratingSpan = Math.max(40, maxRating - minRating);
   const chartW = 440;

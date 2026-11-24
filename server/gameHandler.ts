@@ -59,10 +59,128 @@ import {
   recordStreakActivity,
   type StoredStreakState,
 } from '../shared/streak.js';
+import {
+  createStoredTournament,
+  findTournamentMatch,
+  isTournamentSize,
+  joinStoredTournament,
+  leaveOrKickTournament,
+  linkRoomToTournamentMatch,
+  resolveTournamentMatchWinner,
+  startStoredTournament,
+  syncTournamentWithRooms,
+  toTournamentSnapshot,
+  type StoredTournament,
+} from '../shared/tournamentLogic.js';
 
 const QUEUE_STALE_MS = 25_000;
 const ROOM_CLEANUP_STALE_MS = 2 * 60 * 60 * 1000;
+const TOURNAMENT_CLEANUP_STALE_MS = 12 * 60 * 60 * 1000;
 const AUTH_SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+
+let tournamentsTableReady: Promise<void> | null = null;
+
+async function ensureTournamentsTable(): Promise<void> {
+  if (!tournamentsTableReady) {
+    tournamentsTableReady = (async () => {
+      const pool = getPool();
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS tournaments (
+          code TEXT PRIMARY KEY,
+          state_json JSONB NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_tournaments_updated_at
+          ON tournaments (updated_at DESC)
+      `);
+    })().catch((err) => {
+      tournamentsTableReady = null;
+      throw err;
+    });
+  }
+  return tournamentsTableReady;
+}
+
+function parseStoredTournament(raw: unknown): StoredTournament {
+  if (typeof raw === 'string') {
+    return JSON.parse(raw) as StoredTournament;
+  }
+  return raw as StoredTournament;
+}
+
+async function generateUniqueTournamentCode(client: PgClientLike): Promise<string> {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const code = generateRoomCode();
+    const exists = await client.query('SELECT 1 FROM tournaments WHERE code = $1', [code]);
+    if (exists.rows.length === 0) {
+      return code;
+    }
+  }
+  throw new Error('Impossible de générer un code de tournoi unique.');
+}
+
+async function saveTournamentRow(
+  client: PgClientLike,
+  tournament: StoredTournament,
+  nextVersion: number,
+  now: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE tournaments
+     SET state_json = $2::jsonb, version = $3, updated_at = $4
+     WHERE code = $1`,
+    [tournament.code, JSON.stringify(tournament), nextVersion, now],
+  );
+}
+
+async function syncTournamentRowWithRooms(
+  client: PgClientLike,
+  tournament: StoredTournament,
+  version: number,
+  now: number,
+): Promise<{ tournament: StoredTournament; version: number; changed: boolean }> {
+  if (tournament.phase !== 'running') {
+    return { tournament, version, changed: false };
+  }
+  const liveCodes: string[] = [];
+  for (const round of tournament.rounds) {
+    for (const m of round.matches) {
+      if (m.status === 'live' && m.roomCode) {
+        liveCodes.push(m.roomCode);
+      }
+    }
+  }
+  if (liveCodes.length === 0) {
+    return { tournament, version, changed: false };
+  }
+
+  const roomsRes = await client.query(
+    'SELECT code, state_json, version FROM rooms WHERE code = ANY($1::text[])',
+    [liveCodes],
+  );
+  const roomsByCode = new Map<string, StoredRoom>();
+  for (const row of roomsRes.rows) {
+    let room = parseStoredRoom(row.state_json);
+    const roomVersion = Number(row.version);
+    const settled = settleTimeoutsAndAbandonment(room, now);
+    if (settled.changed) {
+      room = await commitRoomEloIfEnded(client, settled.room, now);
+      await saveRoomRow(client, room, roomVersion + 1, now);
+    }
+    roomsByCode.set(String(row.code), room);
+  }
+
+  const synced = syncTournamentWithRooms(tournament, roomsByCode, now);
+  if (!synced.changed) {
+    return { tournament, version, changed: false };
+  }
+  const nextVersion = version + 1;
+  await saveTournamentRow(client, synced.tournament, nextVersion, now);
+  return { tournament: synced.tournament, version: nextVersion, changed: true };
+}
 const LIVE_ROOM_WINDOW_MS = 30_000;
 /** Parties classées minimum pour apparaître au classement général. */
 const LEADERBOARD_MIN_GAMES = 3;
@@ -2064,6 +2182,496 @@ export async function handleGameRequest(req: Request): Promise<Response> {
         ]);
       }
       return jsonResponse({ ok: true });
+    }
+
+    // ==================== TOURNOIS ENTRE AMIS (4 / 8 / 16) ====================
+
+    // POST /api/game/tournaments — créer un tournoi
+    if (method === 'POST' && subPath === '/tournaments') {
+      await ensureTournamentsTable();
+      const body = await readJsonBody<{
+        playerId?: string;
+        profileId?: string;
+        pseudo?: string;
+        name?: string;
+        size?: unknown;
+        timeControl?: unknown;
+      }>(req);
+
+      if (
+        !body?.playerId ||
+        !isTournamentSize(body.size) ||
+        !isTimeControl(body.timeControl)
+      ) {
+        return jsonResponse(
+          { ok: false, error: 'Paramètres de tournoi invalides.' },
+          400,
+        );
+      }
+
+      const size = body.size;
+      const timeControl = body.timeControl;
+      const identity = await resolveIdentity(
+        req,
+        poolQuery,
+        body.profileId ?? body.playerId,
+        body.pseudo,
+        'Organisateur',
+        now,
+      );
+
+      const data = await withTx(async (client) => {
+        await client.query('DELETE FROM tournaments WHERE updated_at < $1', [
+          now - TOURNAMENT_CLEANUP_STALE_MS,
+        ]);
+        const eloProfile = await loadEloProfile(client, identity.profileKey);
+        const code = await generateUniqueTournamentCode(client);
+        const tournament = createStoredTournament({
+          code,
+          name: body.name,
+          size,
+          timeControl,
+          hostPlayerId: body.playerId!,
+          hostProfileKey: identity.profileKey,
+          hostPseudo: identity.pseudo,
+          hostEloProfile: eloProfile,
+          now,
+        });
+
+        await client.query(
+          `INSERT INTO tournaments (code, state_json, version, updated_at)
+           VALUES ($1, $2::jsonb, 1, $3)`,
+          [code, JSON.stringify(tournament), now],
+        );
+
+        return {
+          snapshot: toTournamentSnapshot(tournament, now),
+          version: 1,
+        };
+      });
+
+      return jsonResponse({ ok: true, data });
+    }
+
+    // Match play / host forfeit: /tournaments/:code/matches/:matchId/(play|advance)
+    const tournamentMatchRoute = subPath.match(
+      /^\/tournaments\/([A-Za-z0-9]+)\/matches\/([A-Za-z0-9_-]+)\/(play|advance)$/,
+    );
+    if (method === 'POST' && tournamentMatchRoute) {
+      await ensureTournamentsTable();
+      const code = normalizeRoomCode(tournamentMatchRoute[1]);
+      const matchId = tournamentMatchRoute[2];
+      const action = tournamentMatchRoute[3];
+
+      if (code.length !== 6) {
+        return jsonResponse({ ok: false, error: 'Code de tournoi invalide.' }, 400);
+      }
+
+      if (action === 'play') {
+        const body = await readJsonBody<{
+          playerId?: string;
+          profileId?: string;
+          pseudo?: string;
+        }>(req);
+
+        if (!body?.playerId) {
+          return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
+        }
+
+        const identity = await resolveIdentity(
+          req,
+          poolQuery,
+          body.profileId ?? body.playerId,
+          body.pseudo,
+          'Joueur',
+          now,
+        );
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM tournaments WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Tournoi introuvable ou expiré.' };
+          }
+
+          let tournament = parseStoredTournament(locked.rows[0].state_json);
+          let tVersion = Number(locked.rows[0].version);
+          const synced = await syncTournamentRowWithRooms(client, tournament, tVersion, now);
+          tournament = synced.tournament;
+          tVersion = synced.version;
+
+          if (tournament.phase !== 'running') {
+            return { ok: false as const, status: 409, error: 'Ce tournoi n’est pas en cours.' };
+          }
+
+          const match = findTournamentMatch(tournament, matchId);
+          if (!match || !match.playerA || !match.playerB) {
+            return { ok: false as const, status: 404, error: 'Match introuvable ou pas encore prêt.' };
+          }
+          if (match.status === 'finished' || match.status === 'bye') {
+            return { ok: false as const, status: 409, error: 'Ce match est déjà terminé.' };
+          }
+
+          const isParticipant =
+            match.playerA.id === body.playerId || match.playerB.id === body.playerId;
+          if (!isParticipant) {
+            return { ok: false as const, status: 403, error: 'Vous ne participez pas à ce match.' };
+          }
+
+          const eloProfile = await loadEloProfile(client, identity.profileKey);
+          const tournamentMeta = {
+            code: tournament.code,
+            name: tournament.name,
+            matchId: match.id,
+            roundKey: match.roundKey,
+          };
+
+          // Si un salon existe déjà pour ce match, on le rejoint / reconnecte
+          if (match.roomCode) {
+            const roomLocked = await client.query(
+              'SELECT state_json, version FROM rooms WHERE code = $1 FOR UPDATE',
+              [match.roomCode],
+            );
+            if (roomLocked.rows.length > 0) {
+              const room = parseStoredRoom(roomLocked.rows[0].state_json);
+              const rVersion = Number(roomLocked.rows[0].version);
+              const joined = joinStoredRoom(room, {
+                playerId: body.playerId!,
+                profileKey: identity.profileKey,
+                pseudo: identity.pseudo,
+                eloProfile,
+                now,
+              });
+              if (!joined.ok) {
+                return { ok: false as const, status: 409, error: joined.error };
+              }
+              const nextRoomVersion = rVersion + 1;
+              await saveRoomRow(client, joined.room, nextRoomVersion, now);
+              return {
+                ok: true as const,
+                roomCode: joined.room.code,
+                snapshot: toRoomSnapshot(joined.room, now),
+                version: nextRoomVersion,
+                tournament: toTournamentSnapshot(tournament, now),
+                tournamentVersion: tVersion,
+              };
+            }
+          }
+
+          // Sinon on crée le salon 1v1 dédié à ce match du tableau
+          const roomCode = await generateUniqueRoomCode(client);
+          const room = createStoredRoom({
+            code: roomCode,
+            playerId: body.playerId!,
+            profileKey: identity.profileKey,
+            pseudo: identity.pseudo,
+            timeControl: tournament.timeControl,
+            mode: '1v1',
+            eloProfile,
+            tournament: tournamentMeta,
+            now,
+          });
+          await client.query(
+            `INSERT INTO rooms (code, state_json, version, updated_at)
+             VALUES ($1, $2::jsonb, 1, $3)`,
+            [roomCode, JSON.stringify(room), now],
+          );
+
+          const updatedTournament = linkRoomToTournamentMatch(
+            tournament,
+            match.id,
+            roomCode,
+            now,
+          );
+          const nextTVersion = tVersion + 1;
+          await saveTournamentRow(client, updatedTournament, nextTVersion, now);
+
+          return {
+            ok: true as const,
+            roomCode,
+            snapshot: toRoomSnapshot(room, now),
+            version: 1,
+            tournament: toTournamentSnapshot(updatedTournament, now),
+            tournamentVersion: nextTVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: {
+            roomCode: result.roomCode,
+            snapshot: result.snapshot,
+            version: result.version,
+            tournament: result.tournament,
+            tournamentVersion: result.tournamentVersion,
+          },
+        });
+      }
+
+      // POST /api/game/tournaments/:code/matches/:matchId/advance (forfait hôte)
+      if (action === 'advance') {
+        const body = await readJsonBody<{
+          playerId?: string;
+          winnerId?: string;
+        }>(req);
+
+        if (!body?.playerId || !body?.winnerId) {
+          return jsonResponse({ ok: false, error: 'Paramètres invalides.' }, 400);
+        }
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM tournaments WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Tournoi introuvable ou expiré.' };
+          }
+          const tournament = parseStoredTournament(locked.rows[0].state_json);
+          const tVersion = Number(locked.rows[0].version);
+          if (tournament.hostId !== body.playerId) {
+            return {
+              ok: false as const,
+              status: 403,
+              error: 'Seul l’organisateur peut déclarer un forfait.',
+            };
+          }
+
+          const resolved = resolveTournamentMatchWinner(tournament, {
+            matchId,
+            winnerId: body.winnerId!,
+            endReason: 'forfeit',
+            now,
+          });
+          if (!resolved.ok) {
+            return { ok: false as const, status: 409, error: resolved.error };
+          }
+          const nextVersion = resolved.changed ? tVersion + 1 : tVersion;
+          if (resolved.changed) {
+            await saveTournamentRow(client, resolved.tournament, nextVersion, now);
+          }
+          return {
+            ok: true as const,
+            snapshot: toTournamentSnapshot(resolved.tournament, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: { snapshot: result.snapshot, version: result.version },
+        });
+      }
+    }
+
+    // Tournament routes: /tournaments/:code and /tournaments/:code/(join|leave|start)
+    const tournamentRoute = subPath.match(
+      /^\/tournaments\/([A-Za-z0-9]+)(?:\/(join|leave|start))?$/,
+    );
+    if (tournamentRoute) {
+      await ensureTournamentsTable();
+      const code = normalizeRoomCode(tournamentRoute[1]);
+      const action = tournamentRoute[2] ?? 'get';
+
+      if (code.length !== 6) {
+        return jsonResponse({ ok: false, error: 'Code de tournoi invalide.' }, 400);
+      }
+
+      // GET /api/game/tournaments/:code?version=...
+      if (method === 'GET' && action === 'get') {
+        const clientVersion = Number(url.searchParams.get('version') ?? '0');
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM tournaments WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return null;
+          }
+          const tournament = parseStoredTournament(locked.rows[0].state_json);
+          const version = Number(locked.rows[0].version);
+          const synced = await syncTournamentRowWithRooms(client, tournament, version, now);
+
+          if (!synced.changed && clientVersion > 0 && clientVersion === synced.version) {
+            return { unchanged: true as const, serverNow: now };
+          }
+          return {
+            unchanged: false as const,
+            snapshot: toTournamentSnapshot(synced.tournament, now),
+            version: synced.version,
+          };
+        });
+
+        if (!result) {
+          return jsonResponse({ ok: false, error: 'Tournoi introuvable ou expiré.' }, 404);
+        }
+        return jsonResponse({ ok: true, data: result });
+      }
+
+      // POST /api/game/tournaments/:code/join
+      if (method === 'POST' && action === 'join') {
+        const body = await readJsonBody<{
+          playerId?: string;
+          profileId?: string;
+          pseudo?: string;
+        }>(req);
+
+        if (!body?.playerId) {
+          return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
+        }
+
+        const identity = await resolveIdentity(
+          req,
+          poolQuery,
+          body.profileId ?? body.playerId,
+          body.pseudo,
+          'Joueur',
+          now,
+        );
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM tournaments WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Tournoi introuvable ou expiré.' };
+          }
+          let tournament = parseStoredTournament(locked.rows[0].state_json);
+          let version = Number(locked.rows[0].version);
+          const synced = await syncTournamentRowWithRooms(client, tournament, version, now);
+          tournament = synced.tournament;
+          version = synced.version;
+
+          const eloProfile = await loadEloProfile(client, identity.profileKey);
+          const joined = joinStoredTournament(tournament, {
+            playerId: body.playerId!,
+            profileKey: identity.profileKey,
+            pseudo: identity.pseudo,
+            eloProfile,
+            now,
+          });
+          if (!joined.ok) {
+            return { ok: false as const, status: 409, error: joined.error };
+          }
+
+          const nextVersion = version + 1;
+          await saveTournamentRow(client, joined.tournament, nextVersion, now);
+          return {
+            ok: true as const,
+            snapshot: toTournamentSnapshot(joined.tournament, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: { snapshot: result.snapshot, version: result.version },
+        });
+      }
+
+      // POST /api/game/tournaments/:code/leave
+      if (method === 'POST' && action === 'leave') {
+        const body = await readJsonBody<{
+          playerId?: string;
+          targetPlayerId?: string;
+        }>(req);
+
+        if (!body?.playerId) {
+          return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
+        }
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM tournaments WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: true as const, deleted: true as const };
+          }
+          const tournament = parseStoredTournament(locked.rows[0].state_json);
+          const version = Number(locked.rows[0].version);
+          const left = leaveOrKickTournament(tournament, {
+            actorId: body.playerId!,
+            targetPlayerId: body.targetPlayerId,
+            now,
+          });
+          if (!left.ok) {
+            return { ok: false as const, status: 409, error: left.error };
+          }
+          if (left.deleted) {
+            await client.query('DELETE FROM tournaments WHERE code = $1', [code]);
+            return { ok: true as const, deleted: true as const };
+          }
+          const nextVersion = version + 1;
+          await saveTournamentRow(client, left.tournament, nextVersion, now);
+          return {
+            ok: true as const,
+            deleted: false as const,
+            snapshot: toTournamentSnapshot(left.tournament, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({ ok: true, data: result });
+      }
+
+      // POST /api/game/tournaments/:code/start
+      if (method === 'POST' && action === 'start') {
+        const body = await readJsonBody<{ playerId?: string }>(req);
+        if (!body?.playerId) {
+          return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
+        }
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM tournaments WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Tournoi introuvable ou expiré.' };
+          }
+          const tournament = parseStoredTournament(locked.rows[0].state_json);
+          const version = Number(locked.rows[0].version);
+          const started = startStoredTournament(tournament, {
+            actorId: body.playerId!,
+            now,
+          });
+          if (!started.ok) {
+            return { ok: false as const, status: 409, error: started.error };
+          }
+          const nextVersion = version + 1;
+          await saveTournamentRow(client, started.tournament, nextVersion, now);
+          return {
+            ok: true as const,
+            snapshot: toTournamentSnapshot(started.tournament, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: { snapshot: result.snapshot, version: result.version },
+        });
+      }
     }
 
     return jsonResponse({ ok: false, error: 'Route inconnue.' }, 404);

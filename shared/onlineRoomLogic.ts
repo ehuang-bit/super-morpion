@@ -37,6 +37,7 @@ import {
   type RoomPeekInfo,
   type RoomPlayer,
   type RoomSnapshot,
+  type RoomTournamentMeta,
   type TeamSeat,
   type TimeControl,
 } from './protocol.js';
@@ -129,6 +130,8 @@ export interface StoredRoom {
     X: EloMatchDelta;
     O: EloMatchDelta;
   } | null;
+  /** Métadonnées de tournoi si ce salon correspond à un match de tableau. */
+  tournament?: RoomTournamentMeta | null;
   lastActivityAt: number;
 }
 
@@ -288,6 +291,7 @@ function cloneRoom(room: StoredRoom): StoredRoom {
       : {}),
     clocks: room.clocks ? { ...room.clocks } : null,
     ...(room.moveTimeouts ? { moveTimeouts: { ...room.moveTimeouts } } : {}),
+    ...(room.tournament ? { tournament: { ...room.tournament } } : {}),
     rematchVotes: [...room.rematchVotes],
     eloResult: room.eloResult
       ? {
@@ -341,8 +345,9 @@ function finishRoom(
   next.lastActivityAt = now;
 
   if (
-    next.gameState.moveHistory.length < MIN_MOVES_FOR_RATED_GAME ||
-    !bothPlayersHavePlayed(next.gameState)
+    !next.tournament &&
+    (next.gameState.moveHistory.length < MIN_MOVES_FOR_RATED_GAME ||
+      !bothPlayersHavePlayed(next.gameState))
   ) {
     next.endReason = 'aborted';
     next.matchWinner = null;
@@ -395,6 +400,7 @@ export function createStoredRoom(params: {
   timeControl: TimeControl;
   mode?: RoomMode;
   eloProfile: EloProfile;
+  tournament?: RoomTournamentMeta | null;
   now: number;
 }): StoredRoom {
   const mode: RoomMode = params.mode === '2v2' ? '2v2' : '1v1';
@@ -444,6 +450,7 @@ export function createStoredRoom(params: {
     rematchVotes: [],
     gameNumber: 1,
     eloResult: null,
+    ...(params.tournament ? { tournament: { ...params.tournament } } : {}),
     lastActivityAt: params.now,
   };
   return room;
@@ -550,6 +557,7 @@ export function toRoomSnapshot(room: StoredRoom, now: number): RoomSnapshot {
     gameNumber: room.gameNumber,
     eloStakes,
     eloResult: room.eloResult,
+    tournament: room.tournament ?? null,
   };
 }
 

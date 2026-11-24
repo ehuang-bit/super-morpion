@@ -29,6 +29,7 @@ import {
   PROJECTOR_SPRING,
   SMOOTH_EASE,
 } from '../utils/motion';
+import { useI18n } from '../i18n';
 import { BoardFx } from './BoardFx';
 import { SubBoard } from './SubBoard';
 
@@ -104,6 +105,7 @@ export function GlobalBoard({
   const lastPreviewRef = useRef<DestinationPreview | null>(null);
   const clearHoverTimerRef = useRef<number | null>(null);
   const reduceMotion = useReducedMotion();
+  const { t } = useI18n();
 
   // Track cells & board captures present on mount vs added live, so reconnects never replay old animations
   const seenMovesRef = useRef<Set<string> | null>(null);
@@ -387,6 +389,7 @@ export function GlobalBoard({
   return (
     <div
       ref={shellRef}
+      dir="ltr"
       className={`board-shell ${variantClass} relative mx-auto box-border overflow-hidden ${shellRadius} ${materialClass} p-2 sm:p-2.5 transition-[border-radius] duration-200`}
       style={{
         backgroundColor: 'var(--bg-recessed)',
@@ -518,9 +521,9 @@ export function GlobalBoard({
               }}
             >
               {shownPreview.willBeFreeMove
-                ? 'Coup libre →'
+                ? t('common.freeMove')
                 : shownPreview.isSelfRedirect
-                  ? '↻ Même zone'
+                  ? t('common.sameZone')
                   : `→ ${BOARD_COORDS[shownPreview.targetBoard]}`}
             </span>
           </motion.div>

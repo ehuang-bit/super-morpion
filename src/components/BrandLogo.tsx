@@ -113,6 +113,7 @@ export function BrandLogo({
         </span>
 
         <span
+          dir="ltr"
           className={`flex items-center font-extrabold tracking-[-0.03em] leading-none mt-0.5 ${
             isCompact ? 'text-[14px]' : 'text-[15.5px]'
           }`}

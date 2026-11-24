@@ -851,6 +851,16 @@ export function useOnlineGame(
     });
   }, [playerId]);
 
+  const enterRoomSnapshot = useCallback(
+    (snap: RoomSnapshot, version: number) => {
+      versionRef.current = version;
+      setPeekInfo(null);
+      setPeekError(null);
+      handleIncomingSnapshot(snap);
+    },
+    [handleIncomingSnapshot],
+  );
+
   return {
     connected,
     connectionStatus,
@@ -874,6 +884,7 @@ export function useOnlineGame(
     createRoom,
     peekRoom,
     joinRoom,
+    enterRoomSnapshot,
     playMove,
     switchSeat,
     sendEmote,

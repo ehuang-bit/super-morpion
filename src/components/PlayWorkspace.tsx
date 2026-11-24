@@ -27,6 +27,7 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Crown,
   GraduationCap,
   KeyRound,
   Link2,
@@ -40,6 +41,7 @@ import {
 } from 'lucide-react';
 import { getDailyPuzzle } from '../data/dailyPuzzles';
 import type { ConnectionStatus } from '../hooks/useOnlineGame';
+import { useI18n } from '../i18n';
 import type { BoardPreferences } from '../types/boardPrefs';
 import { getDailyStatus } from '../utils/dailyStorage';
 import { formatElapsedSeconds, normalizeRoomCode } from '../utils/format';
@@ -91,6 +93,7 @@ interface PlayWorkspaceProps {
   onOpenStats: () => void;
   onOpenDaily: () => void;
   onOpenBot: () => void;
+  onOpenTournament: () => void;
   botSummary: {
     level: number;
     label: string;
@@ -154,9 +157,11 @@ export function PlayWorkspace({
   onOpenStats,
   onOpenDaily,
   onOpenBot,
+  onOpenTournament,
   botSummary,
   tutorialRequest,
 }: PlayWorkspaceProps) {
+  const { t, translateTier, translateTimeControl } = useI18n();
   const [joinCode, setJoinCode] = useState('');
   const [showJoinCode, setShowJoinCode] = useState(false);
   const [friendMode, setFriendMode] = useState<RoomMode>('1v1');
@@ -317,8 +322,7 @@ export function PlayWorkspace({
   const tutorialActive = tutorial !== null && showLaunchConsole;
 
   // Build tactical hint above the ready-to-play board
-  let boardHint =
-    'Plateau prêt à jouer · survolez ou cliquez une case pour tester le renvoi';
+  let boardHint = t('play.sandboxFreeHint');
   if (sandboxPreview.preview && sandboxPreview.hoveredMove) {
     if (sandboxPreview.preview.willBeFreeMove) {
       boardHint = `Case ${BOARD_COORDS[sandboxPreview.hoveredMove.cellIndex]} → Zone verrouillée : coup libre adverse`;
@@ -379,16 +383,16 @@ export function PlayWorkspace({
           className="w-4 h-4 shrink-0"
           style={{ color: 'var(--accent-active-text)' }}
         />
-        <span>Première partie ? Apprends les règles en jouant, en 30 secondes.</span>
+        <span>{t('play.tutorialBanner')}</span>
       </span>
-      <span className="flex items-center gap-1.5 ml-auto">
+      <span className="flex items-center gap-1.5 ms-auto">
         <button
           type="button"
           onClick={dismissTutorialOffer}
           className="tactile-btn rounded-lg px-2.5 py-1.5 text-xs font-semibold"
           style={{ color: 'var(--text-secondary)' }}
         >
-          Plus tard
+          {t('play.later')}
         </button>
         <button
           type="button"
@@ -399,7 +403,7 @@ export function PlayWorkspace({
             color: 'var(--btn-primary-text)',
           }}
         >
-          Commencer
+          {t('play.start')}
         </button>
       </span>
     </motion.div>
@@ -618,9 +622,9 @@ export function PlayWorkspace({
                     <span className="live-dot" aria-hidden="true" />
                     {lobby
                       ? lobby.playersOnline > 0
-                        ? `${lobby.playersOnline} joueur${lobby.playersOnline > 1 ? 's' : ''} en ligne`
-                        : 'Arène ouverte · sois le premier'
-                      : 'Connexion à l’arène…'}
+                        ? `${lobby.playersOnline} ${t('common.players')} · ${t('common.online')}`
+                        : t('play.arenaOnline')
+                      : t('play.connectingArena')}
                   </span>
                   {lobby && lobby.liveGames > 0 && (
                     <span
@@ -663,15 +667,16 @@ export function PlayWorkspace({
                           className="text-xs font-semibold truncate"
                           style={{ color: 'var(--text-secondary)' }}
                         >
-                          {playerElo.tier}
+                          {translateTier(playerElo.tier)}
                         </span>
                       </span>
                       <span
                         className="block font-mono text-[11px] tabular-nums"
                         style={{ color: 'var(--text-muted)' }}
                       >
-                        {playerElo.profile.wins} V · {playerElo.profile.draws} N ·{' '}
-                        {playerElo.profile.losses} D
+                        {playerElo.profile.wins} {t('common.winsShort')} ·{' '}
+                        {playerElo.profile.draws} {t('common.drawsShort')} ·{' '}
+                        {playerElo.profile.losses} {t('common.lossesShort')}
                       </span>
                     </span>
                     <ChevronRight
@@ -721,7 +726,7 @@ export function PlayWorkspace({
                       className="block text-xs font-semibold mb-1"
                       style={{ color: 'var(--text-secondary)' }}
                     >
-                      Pseudo (mode invité)
+                      {t('play.pseudoGuest')}
                     </label>
                     <input
                       id="play-pseudo-input"
@@ -729,7 +734,7 @@ export function PlayWorkspace({
                       maxLength={20}
                       value={pseudo}
                       onChange={(e) => onChangePseudo(e.target.value)}
-                      placeholder="Ex. Camille"
+                      placeholder={t('play.pseudoPlaceholder')}
                       className="tactile-input w-full rounded-[10px] px-3 py-2 text-sm font-medium"
                       style={{
                         backgroundColor: 'var(--bg-surface)',
@@ -751,9 +756,7 @@ export function PlayWorkspace({
                     style={{ color: 'var(--text-secondary)' }}
                   >
                     <Clock className="w-3.5 h-3.5" strokeWidth={1.75} />
-                    <span>
-                      Cadence · {Math.round(MOVE_TIME_LIMIT_MS / 1000)} s par coup dans tous les cas
-                    </span>
+                    <span>{t('tc.moveLimitNote')}</span>
                   </span>
                   <LayoutGroup id="cadence">
                     <div
@@ -796,7 +799,9 @@ export function PlayWorkspace({
                                 }}
                               />
                             )}
-                            <span className="relative">{TIME_CONTROL_LABELS[cadence]}</span>
+                            <span className="relative">
+                              {translateTimeControl(cadence)}
+                            </span>
                           </button>
                         );
                       })}
@@ -838,7 +843,7 @@ export function PlayWorkspace({
                         style={{ color: 'var(--text-primary)' }}
                       >
                         <span className="live-dot" aria-hidden="true" />
-                        <span className="truncate">Recherche d’un adversaire…</span>
+                        <span className="truncate">{t('play.searching')}</span>
                       </span>
                       <span
                         className="shrink-0 font-mono text-xs font-bold tabular-nums rounded-md px-2 py-0.5"
@@ -881,7 +886,7 @@ export function PlayWorkspace({
                       }}
                     >
                       <X className="w-3.5 h-3.5" strokeWidth={2} />
-                      <span>Annuler</span>
+                      <span>{t('common.cancel')}</span>
                     </button>
                   </motion.div>
                 ) : (
@@ -905,11 +910,15 @@ export function PlayWorkspace({
                         <Swords className="w-5 h-5" strokeWidth={1.9} />
                       </span>
                       <span className="flex flex-col items-start leading-tight min-w-0">
-                        <span className="text-base font-bold">Trouver un adversaire</span>
+                        <span className="text-base font-bold">
+                          {t('play.findOpponent')}
+                        </span>
                         <span className="text-xs font-medium opacity-80 truncate max-w-full">
                           {waitingInQueue > 0
-                            ? `${waitingInQueue} joueur${waitingInQueue > 1 ? 's' : ''} en attente · ${TIME_CONTROL_LABELS[timeControl]}`
-                            : `À ton niveau · ${TIME_CONTROL_LABELS[timeControl]}`}
+                            ? `${waitingInQueue} ${t('common.players')} · ${translateTimeControl(timeControl)}`
+                            : t('play.findOpponentSub', {
+                                tc: translateTimeControl(timeControl),
+                              })}
                         </span>
                       </span>
                     </span>
@@ -928,7 +937,7 @@ export function PlayWorkspace({
                       className="text-xs font-semibold shrink-0"
                       style={{ color: 'var(--text-muted)' }}
                     >
-                      Avec un ami
+                      {t('play.withFriend')}
                     </span>
                     <span
                       className="h-px flex-1"
@@ -1014,7 +1023,7 @@ export function PlayWorkspace({
                         <Link2 className="w-3.5 h-3.5 shrink-0" strokeWidth={1.9} />
                       )}
                       <span>
-                        {friendMode === '2v2' ? 'Créer un 2v2' : 'Créer un salon'}
+                        {friendMode === '2v2' ? '2v2' : t('play.createRoom')}
                       </span>
                     </button>
 
@@ -1038,7 +1047,7 @@ export function PlayWorkspace({
                       }}
                     >
                       <KeyRound className="w-3.5 h-3.5 shrink-0" strokeWidth={1.9} />
-                      <span>Entrer un code</span>
+                      <span>{t('play.enterCode')}</span>
                     </button>
                   </div>
 
@@ -1134,7 +1143,7 @@ export function PlayWorkspace({
                             onChange={(e) =>
                               setJoinCode(normalizeRoomCode(e.target.value))
                             }
-                            placeholder="CODE À 6 CAR."
+                            placeholder={t('play.codePlaceholder')}
                             disabled={matchmaking.searching}
                             className="tactile-input flex-1 min-w-0 rounded-[10px] px-3 py-2 font-mono text-sm uppercase tracking-[0.14em]"
                             style={{
@@ -1157,7 +1166,7 @@ export function PlayWorkspace({
                               border: '1px solid var(--border-strong)',
                             }}
                           >
-                            Rejoindre
+                            {t('play.join')}
                           </button>
                         </div>
                       </motion.form>
@@ -1176,12 +1185,72 @@ export function PlayWorkspace({
                     />
                     <span>
                       {connectionStatus === 'offline'
-                        ? 'Serveur momentanément indisponible.'
-                        : 'Connexion au serveur en ligne…'}
+                        ? t('play.serverUnavailable')
+                        : t('play.connectingArena')}
                     </span>
                   </p>
                 )}
               </motion.div>
+
+              {/* Carte compacte : Tournoi entre amis (4 / 8 / 16 joueurs) */}
+              <motion.button
+                type="button"
+                onClick={() => {
+                  haptics.tap();
+                  onOpenTournament();
+                }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.34, delay: 0.02, ease: [0.22, 1, 0.36, 1] }}
+                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-start"
+                style={{
+                  backgroundColor: 'var(--bg-board)',
+                  border: '1px solid var(--accent-active)',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor: 'var(--accent-active-bg)',
+                      color: 'var(--accent-active-text)',
+                      border: '1px solid var(--accent-active)',
+                    }}
+                  >
+                    <Crown className="w-4 h-4" strokeWidth={2} />
+                  </span>
+                  <span className="min-w-0 flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="text-xs font-bold leading-tight"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {t('play.tournamentCardTitle')}
+                      </span>
+                      <span
+                        className="font-mono text-[10px] font-bold rounded px-1.5 py-0.5 leading-none"
+                        style={{
+                          backgroundColor: 'var(--accent-active-bg)',
+                          color: 'var(--accent-active-text)',
+                        }}
+                      >
+                        4 · 8 · 16
+                      </span>
+                    </span>
+                    <span
+                      className="text-[11px] truncate mt-0.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {t('play.tournamentCardSub')}
+                    </span>
+                  </span>
+                </span>
+                <ChevronRight
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+              </motion.button>
 
               {/* Carte compacte : Bot algorithmique adaptatif */}
               <motion.button
@@ -1193,7 +1262,7 @@ export function PlayWorkspace({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.34, delay: 0.03, ease: [0.22, 1, 0.36, 1] }}
-                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-left"
+                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-start"
                 style={{
                   backgroundColor: 'var(--bg-board)',
                   border: '1px solid var(--border-main)',
@@ -1217,7 +1286,7 @@ export function PlayWorkspace({
                         className="text-xs font-bold leading-tight"
                         style={{ color: 'var(--text-primary)' }}
                       >
-                        Bot adaptatif
+                        {t('play.botCardTitle')}
                       </span>
                       <span
                         className="font-mono text-[10px] font-bold rounded px-1.5 py-0.5 leading-none"
@@ -1226,16 +1295,19 @@ export function PlayWorkspace({
                           color: 'var(--accent-active-text)',
                         }}
                       >
-                        Niv. {botSummary.level} · {botSummary.elo}
+                        {t('bot.levelBadge', {
+                          level: botSummary.level,
+                          elo: botSummary.elo,
+                        })}
                       </span>
                     </span>
                     <span
                       className="text-[11px] truncate mt-0.5"
                       style={{ color: 'var(--text-secondary)' }}
                     >
-                      {botSummary.wins > 0
-                        ? `${botSummary.label} · Évolue à chaque victoire`
-                        : `Calibré sur ton niveau (${botSummary.label})`}
+                      {t('play.botCardSub', {
+                        tier: translateTier(botSummary.label),
+                      })}
                     </span>
                   </span>
                 </span>
@@ -1252,7 +1324,7 @@ export function PlayWorkspace({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.34, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
-                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-left"
+                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-start"
                 style={{
                   backgroundColor: 'var(--bg-board)',
                   border: `1px solid ${
@@ -1290,7 +1362,7 @@ export function PlayWorkspace({
                         className="text-xs font-bold leading-tight"
                         style={{ color: 'var(--text-primary)' }}
                       >
-                        Défi du jour #{dailyInfo.number}
+                        {t('play.dailyCardTitle', { num: dailyInfo.number })}
                       </span>
                       <span
                         className="font-mono text-[10px] font-bold"

@@ -10,7 +10,7 @@ import {
   type RoomMode,
   type TimeControl,
 } from '@shared/protocol';
-import { CheckCircle2, Eye, Flag, LogOut, RotateCcw, X } from 'lucide-react';
+import { CheckCircle2, Crown, Eye, Flag, LogOut, RotateCcw, X } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { BotMatchView } from './components/BotMatchView';
 import { CustomizeView } from './components/CustomizeView';
@@ -36,6 +36,7 @@ import { RulesModal } from './components/RulesModal';
 import { Sidebar, type NavTab } from './components/Sidebar';
 import { StatsView } from './components/StatsView';
 import { StreakCelebrationToast } from './components/StreakBadge';
+import { TournamentView } from './components/TournamentView';
 import { TurnTimer } from './components/TurnTimer';
 import { VictoryCardModal } from './components/VictoryCardModal';
 import { DEMO_MODE } from './dev/demoMode';
@@ -46,6 +47,8 @@ import {
   getLocalSymbol,
   useOnlineGame,
 } from './hooks/useOnlineGame';
+import { getSavedTournamentCode, useTournament } from './hooks/useTournament';
+import { useI18n } from './i18n';
 import type { BoardPreferences } from './types/boardPrefs';
 import {
   applyThemeToDocument,
@@ -81,13 +84,19 @@ function extractRoomCodeFromPath(pathname: string): string | null {
   return code.length === 6 ? code : null;
 }
 
-const BASE_TITLE = 'Super Morpion — Duel stratégique 1v1';
+function extractTournamentCodeFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/(?:tournoi|tournament)\/([A-Za-z0-9]{4,8})\/?$/i);
+  if (!match) return null;
+  const code = normalizeRoomCode(match[1]);
+  return code.length === 6 ? code : null;
+}
 
 // Panneau du mode démo : développement uniquement, jamais dans le site en ligne
 const DemoPanel =
   import.meta.env.DEV && DEMO_MODE ? lazy(() => import('./dev/DemoPanel')) : null;
 
 export function App() {
+  const { t, translateRoundKey } = useI18n();
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
   const profileId = useMemo(() => getOrCreateProfileId(), []);
 
@@ -103,7 +112,13 @@ export function App() {
   const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() =>
     getSavedHaptics(),
   );
-  const [activeTab, setActiveTab] = useState<NavTab>('play');
+  const initialTournamentCode = useMemo(
+    () => extractTournamentCodeFromPath(window.location.pathname),
+    [],
+  );
+  const [activeTab, setActiveTab] = useState<NavTab>(() =>
+    initialTournamentCode ? 'tournament' : 'play',
+  );
   const [rulesOpen, setRulesOpen] = useState(false);
   const [tutorialRequest, setTutorialRequest] = useState(0);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -115,6 +130,9 @@ export function App() {
   const [routeRoomCode, setRouteRoomCode] = useState<string | null>(() =>
     extractRoomCodeFromPath(window.location.pathname),
   );
+  const [routeTournamentCode, setRouteTournamentCode] = useState<string | null>(
+    () => initialTournamentCode,
+  );
 
   const [previewInfo, setPreviewInfo] = useState<{
     preview: DestinationPreview | null;
@@ -122,8 +140,10 @@ export function App() {
   }>({ preview: null, hoveredMove: null });
 
   const autoAttemptedRef = useRef<string | null>(null);
+  const autoTournamentRef = useRef<string | null>(null);
 
   const onlineGame = useOnlineGame(playerId, profileId, auth.token);
+  const tournament = useTournament(playerId, profileId, auth.token);
 
   // Progression locale du bot adaptatif (calibrée sur l'Elo du joueur)
   const botScopeId = auth.user?.id || profileId;
@@ -256,12 +276,12 @@ export function App() {
         : snapLocal !== null && snapTurn === snapLocal);
     const update = () => {
       document.title =
-        document.hidden && myTurn ? '● À toi de jouer · Super Morpion' : BASE_TITLE;
+        document.hidden && myTurn ? t('app.yourTurnTitle') : t('app.title');
     };
     update();
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
-  }, [snapPhase, snapMode, snapTurn, snapActiveSeat, snapLocalSeat, snapLocal]);
+  }, [snapPhase, snapMode, snapTurn, snapActiveSeat, snapLocalSeat, snapLocal, t]);
 
   // Moments forts : présentation des joueurs au lancement, séquence de fin.
   // Rien n'est joué si le système demande de réduire les animations.
@@ -357,7 +377,12 @@ export function App() {
   useEffect(() => {
     const onPopState = () => {
       const code = extractRoomCodeFromPath(window.location.pathname);
+      const tCode = extractTournamentCodeFromPath(window.location.pathname);
       setRouteRoomCode(code);
+      setRouteTournamentCode(tCode);
+      if (tCode) {
+        setActiveTab('tournament');
+      }
       if (!code && onlineGame.snapshot) {
         saveLastJoinedRoom(null);
         onlineGame.leaveRoom();
@@ -386,6 +411,35 @@ export function App() {
       navigateTo(`/room/${code}`, true);
     }
   }, [onlineGame.snapshot?.code, navigateTo]);
+
+  // Keep URL synced when viewing a tournament
+  useEffect(() => {
+    if (activeTab === 'tournament' && tournament.snapshot) {
+      setRouteTournamentCode(tournament.snapshot.code);
+      navigateTo(`/tournoi/${tournament.snapshot.code}`, true);
+    }
+  }, [activeTab, tournament.snapshot?.code, navigateTo]);
+
+  // Handle direct visit on /tournoi/:code or restore last active tournament
+  useEffect(() => {
+    if (!onlineGame.connected) return;
+    const targetCode =
+      routeTournamentCode ??
+      (activeTab === 'tournament' && !tournament.snapshot
+        ? getSavedTournamentCode()
+        : null);
+    if (!targetCode) return;
+    if (tournament.snapshot?.code === targetCode) return;
+    if (autoTournamentRef.current === targetCode) return;
+    autoTournamentRef.current = targetCode;
+    void tournament.loadTournament(targetCode);
+  }, [
+    onlineGame.connected,
+    routeTournamentCode,
+    activeTab,
+    tournament.snapshot?.code,
+    tournament.loadTournament,
+  ]);
 
   // Handle direct visit or refresh on /room/:code
   useEffect(() => {
@@ -501,6 +555,7 @@ export function App() {
   };
 
   const handleLeaveOnline = useCallback(() => {
+    const returnTournamentCode = onlineGame.snapshot?.tournament?.code ?? null;
     autoAttemptedRef.current = null;
     saveLastJoinedRoom(null);
     onlineGame.leaveRoom();
@@ -508,8 +563,16 @@ export function App() {
     setVictoryCardOpen(false);
     setVisibleEmote(null);
     setPreviewInfo({ preview: null, hoveredMove: null });
-    navigateTo('/');
-  }, [onlineGame, navigateTo]);
+    if (returnTournamentCode) {
+      autoTournamentRef.current = null;
+      setRouteTournamentCode(returnTournamentCode);
+      setActiveTab('tournament');
+      navigateTo(`/tournoi/${returnTournamentCode}`);
+      void tournament.loadTournament(returnTournamentCode);
+    } else {
+      navigateTo('/');
+    }
+  }, [onlineGame, tournament, navigateTo]);
 
   const onlineClockValues = useClockTick({
     clocks: onlineGame.snapshot?.clocks ?? null,
@@ -535,19 +598,21 @@ export function App() {
         onlineGame.snapshot.phase === 'finished'),
   );
   const viewKey =
-    activeTab === 'bot'
-      ? 'bot'
-      : activeTab === 'daily'
-        ? 'daily'
-        : activeTab === 'stats'
-          ? 'stats'
-          : activeTab === 'leaderboard'
-            ? 'leaderboard'
-            : activeTab === 'customize'
-              ? 'customize'
-              : inMatchView
-                ? `match-${onlineGame.snapshot?.code ?? ''}`
-                : 'home';
+    activeTab === 'tournament'
+      ? `tournament-${tournament.snapshot?.code ?? 'hub'}`
+      : activeTab === 'bot'
+        ? 'bot'
+        : activeTab === 'daily'
+          ? 'daily'
+          : activeTab === 'stats'
+            ? 'stats'
+            : activeTab === 'leaderboard'
+              ? 'leaderboard'
+              : activeTab === 'customize'
+                ? 'customize'
+                : inMatchView
+                  ? `match-${onlineGame.snapshot?.code ?? ''}`
+                  : 'home';
 
   const victoryCardData: VictoryCardData | null = useMemo(() => {
     if (!liveSnapshot || liveSnapshot.phase !== 'finished') return null;
@@ -576,6 +641,89 @@ export function App() {
   }, [liveSnapshot, snapLocal, boardPrefs.pieceStyle]);
 
   const renderMainView = () => {
+    // 00. Espace Tournoi entre amis (4 / 8 / 16 joueurs)
+    if (activeTab === 'tournament') {
+      return (
+        <main className="w-full flex-1 px-3 sm:px-6 py-3 sm:py-5">
+          <TournamentView
+            playerId={playerId}
+            pseudo={activePseudo}
+            onChangePseudo={handleChangePseudo}
+            hasAccount={Boolean(auth.user)}
+            snapshot={tournament.snapshot}
+            loading={tournament.loading}
+            busyMatchId={tournament.busyMatchId}
+            error={tournament.error}
+            onClearError={tournament.clearError}
+            onCreate={async (params) => {
+              const created = await tournament.createTournament(params);
+              if (created) {
+                autoTournamentRef.current = created.code;
+                setRouteTournamentCode(created.code);
+                navigateTo(`/tournoi/${created.code}`);
+              }
+              return created;
+            }}
+            onJoin={async (params) => {
+              const joined = await tournament.joinTournament(params);
+              if (joined) {
+                autoTournamentRef.current = joined.code;
+                setRouteTournamentCode(joined.code);
+                navigateTo(`/tournoi/${joined.code}`);
+              }
+              return joined;
+            }}
+            onRefresh={() => {
+              if (tournament.snapshot) {
+                void tournament.loadTournament(tournament.snapshot.code);
+              }
+            }}
+            onLeaveOrKick={async (targetPlayerId) => {
+              const ok = await tournament.leaveOrKick(targetPlayerId);
+              if (ok && (!targetPlayerId || targetPlayerId === playerId)) {
+                autoTournamentRef.current = null;
+                setRouteTournamentCode(null);
+                navigateTo('/');
+              }
+              return ok;
+            }}
+            onStart={tournament.startTournament}
+            onPlayMatch={async (matchId) => {
+              const launched = await tournament.playMatch({
+                matchId,
+                pseudo: activePseudo,
+              });
+              if (launched) {
+                autoAttemptedRef.current = launched.roomCode;
+                saveLastJoinedRoom(launched.roomCode);
+                setRouteRoomCode(launched.roomCode);
+                onlineGame.enterRoomSnapshot(launched.snapshot, launched.version);
+                setActiveTab('play');
+                navigateTo(`/room/${launched.roomCode}`);
+              }
+              return launched;
+            }}
+            onWatchRoom={(roomCode) => {
+              void handleJoinByCode(roomCode);
+            }}
+            onAdvanceForfeit={tournament.advanceMatchByForfeit}
+            onExitHub={() => {
+              autoTournamentRef.current = null;
+              tournament.clearTournament();
+              setRouteTournamentCode(null);
+              navigateTo('/');
+            }}
+            onBackToPlay={() => {
+              setActiveTab('play');
+              if (window.location.pathname.startsWith('/tournoi')) {
+                navigateTo('/');
+              }
+            }}
+          />
+        </main>
+      );
+    }
+
     // 0. Couleurs & personnalisation du plateau
     if (activeTab === 'customize') {
       return (
@@ -877,8 +1025,27 @@ export function App() {
               className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold min-w-0 truncate"
               style={{ color: 'var(--text-secondary)' }}
             >
+              {snap.tournament ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-sans text-[10px] font-bold shrink-0"
+                  style={{
+                    backgroundColor: 'var(--accent-active-bg)',
+                    color: 'var(--accent-active-text)',
+                    border: '1px solid var(--accent-active)',
+                  }}
+                >
+                  <Crown className="w-3 h-3" />
+                  <span className="truncate max-w-[160px]">
+                    {translateRoundKey(snap.tournament.roundKey)}
+                  </span>
+                </span>
+              ) : null}
               <span className="truncate">
-                Salon #{snap.code} · {is2v2 ? '2v2 · ' : ''}Manche {snap.gameNumber}
+                {t('play.roomRound', {
+                  code: snap.code,
+                  round: snap.gameNumber,
+                })}
+                {is2v2 ? ' · 2v2' : ''}
               </span>
               {isSpectator && (
                 <span
@@ -889,7 +1056,7 @@ export function App() {
                   }}
                 >
                   <Eye className="w-3 h-3" />
-                  <span>Spectateur</span>
+                  <span>{t('common.spectator')}</span>
                 </span>
               )}
             </span>
@@ -929,7 +1096,7 @@ export function App() {
                 >
                   <Flag className="w-3.5 h-3.5 relative z-10" />
                   <span className="relative z-10">
-                    {confirmResign ? 'Confirmer abandon' : 'Abandonner'}
+                    {confirmResign ? t('play.confirmResign') : t('play.resign')}
                   </span>
                   {confirmResign && (
                     <motion.span
@@ -993,7 +1160,9 @@ export function App() {
                   }}
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Quitter</span>
+                  <span className="hidden sm:inline">
+                    {snap.tournament ? t('play.backToTournament') : t('play.leave')}
+                  </span>
                 </button>
               )}
             </div>
@@ -1042,6 +1211,7 @@ export function App() {
         onOpenStats={() => setActiveTab('stats')}
         onOpenDaily={() => setActiveTab('daily')}
         onOpenBot={() => setActiveTab('bot')}
+        onOpenTournament={() => setActiveTab('tournament')}
         botSummary={botSummary}
         tutorialRequest={tutorialRequest}
       />
@@ -1064,6 +1234,9 @@ export function App() {
         onToggleHaptics={handleToggleHaptics}
         connected={onlineGame.connected}
         inActiveMatch={inActiveMatch}
+        inActiveTournament={Boolean(
+          tournament.snapshot && tournament.snapshot.phase !== 'finished',
+        )}
       />
 
       {/* Sur téléphone, on laisse la place de la barre d'onglets (masquée en match) */}

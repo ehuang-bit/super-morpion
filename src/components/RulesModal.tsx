@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { MODAL_TRANSITION } from '../utils/motion';
 
 interface RulesModalProps {
@@ -11,6 +12,7 @@ interface RulesModalProps {
 }
 
 export function RulesModal({ open, onClose, onStartTutorial }: RulesModalProps) {
+  const { t } = useI18n();
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -58,7 +60,7 @@ export function RulesModal({ open, onClose, onStartTutorial }: RulesModalProps) 
                   className="text-lg font-bold tracking-tight"
                   style={{ color: 'var(--text-primary)' }}
                 >
-                  Règles en 15 secondes
+                  {t('rules.title')}
                 </h2>
                 <p
                   className="text-sm mt-0.5"

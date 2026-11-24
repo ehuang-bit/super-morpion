@@ -1,5 +1,6 @@
 import { LayoutGroup, motion } from 'framer-motion';
-import { BarChart3, Bot, Palette, Swords, Trophy, type LucideIcon } from 'lucide-react';
+import { Bot, Crown, Palette, Swords, Trophy, type LucideIcon } from 'lucide-react';
+import { useI18n, type TranslationKey } from '../i18n';
 import { CHIP_SPRING } from '../utils/motion';
 import type { NavTab } from './Sidebar';
 
@@ -8,22 +9,23 @@ interface MobileTabBarProps {
   onSelectTab: (tab: NavTab) => void;
 }
 
-const TABS: readonly { id: NavTab; label: string; icon: LucideIcon }[] = [
-  { id: 'play', label: 'Jouer', icon: Swords },
-  { id: 'bot', label: 'Bot', icon: Bot },
-  { id: 'stats', label: 'Stats', icon: BarChart3 },
-  { id: 'leaderboard', label: 'Rang', icon: Trophy },
-  { id: 'customize', label: 'Style', icon: Palette },
+const TABS: readonly {
+  id: NavTab;
+  labelKey: TranslationKey;
+  icon: LucideIcon;
+}[] = [
+  { id: 'play', labelKey: 'nav.mobilePlay', icon: Swords },
+  { id: 'tournament', labelKey: 'nav.mobileTournament', icon: Crown },
+  { id: 'bot', labelKey: 'nav.mobileBot', icon: Bot },
+  { id: 'leaderboard', labelKey: 'nav.mobileLeaderboard', icon: Trophy },
+  { id: 'customize', labelKey: 'nav.mobileCustomize', icon: Palette },
 ];
 
-/**
- * Barre d'onglets fixée en bas de l'écran sur téléphone et tablette.
- * Elle tient compte de la barre d'accueil du téléphone (zone sûre).
- */
 export function MobileTabBar({ activeTab, onSelectTab }: MobileTabBarProps) {
+  const { t } = useI18n();
   return (
     <nav
-      aria-label="Navigation principale"
+      aria-label="Mobile navigation"
       className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-5"
       style={{
         backgroundColor: 'var(--bg-board)',
@@ -58,9 +60,11 @@ export function MobileTabBar({ activeTab, onSelectTab }: MobileTabBarProps) {
               <Icon
                 className="w-5 h-5"
                 strokeWidth={active ? 2.1 : 1.8}
-                style={{ color: active ? 'var(--accent-active-text)' : 'var(--text-muted)' }}
+                style={{
+                  color: active ? 'var(--accent-active-text)' : 'var(--text-muted)',
+                }}
               />
-              <span>{tab.label}</span>
+              <span className="truncate max-w-full px-1">{t(tab.labelKey)}</span>
             </button>
           );
         })}

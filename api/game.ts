@@ -14,6 +14,7 @@ function classifyRoute(req: Request): string {
   if (subPath === '/profile' || subPath === '/stats') return 'profile';
   if (subPath.startsWith('/auth/')) return 'auth';
   if (subPath.startsWith('/rooms')) return 'rooms';
+  if (subPath.startsWith('/tournaments')) return 'tournaments';
   if (subPath.startsWith('/matchmaking')) return 'matchmaking';
   return 'other';
 }
