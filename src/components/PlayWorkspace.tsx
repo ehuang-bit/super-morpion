@@ -23,6 +23,7 @@ import {
 import {
   ArrowRight,
   Award,
+  Bot,
   Check,
   ChevronRight,
   Clock,
@@ -89,6 +90,13 @@ interface PlayWorkspaceProps {
   onCancelWaitingOrPrompt: () => void;
   onOpenStats: () => void;
   onOpenDaily: () => void;
+  onOpenBot: () => void;
+  botSummary: {
+    level: number;
+    label: string;
+    elo: number;
+    wins: number;
+  };
   /** Incrémenté pour lancer le tutoriel depuis l'extérieur (fenêtre des règles). */
   tutorialRequest: number;
 }
@@ -145,6 +153,8 @@ export function PlayWorkspace({
   onCancelWaitingOrPrompt,
   onOpenStats,
   onOpenDaily,
+  onOpenBot,
+  botSummary,
   tutorialRequest,
 }: PlayWorkspaceProps) {
   const [joinCode, setJoinCode] = useState('');
@@ -1172,6 +1182,68 @@ export function PlayWorkspace({
                   </p>
                 )}
               </motion.div>
+
+              {/* Carte compacte : Bot algorithmique adaptatif */}
+              <motion.button
+                type="button"
+                onClick={() => {
+                  haptics.tap();
+                  onOpenBot();
+                }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.34, delay: 0.03, ease: [0.22, 1, 0.36, 1] }}
+                className="tactile-btn w-full rounded-[15px] px-3.5 py-3 flex items-center justify-between gap-3 text-left"
+                style={{
+                  backgroundColor: 'var(--bg-board)',
+                  border: '1px solid var(--border-main)',
+                  boxShadow: 'var(--shadow-card)',
+                }}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor: 'var(--x-surface)',
+                      color: 'var(--x-color)',
+                      border: '1px solid var(--x-color)',
+                    }}
+                  >
+                    <Bot className="w-4 h-4" strokeWidth={2} />
+                  </span>
+                  <span className="min-w-0 flex flex-col">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="text-xs font-bold leading-tight"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        Bot adaptatif
+                      </span>
+                      <span
+                        className="font-mono text-[10px] font-bold rounded px-1.5 py-0.5 leading-none"
+                        style={{
+                          backgroundColor: 'var(--accent-active-bg)',
+                          color: 'var(--accent-active-text)',
+                        }}
+                      >
+                        Niv. {botSummary.level} · {botSummary.elo}
+                      </span>
+                    </span>
+                    <span
+                      className="text-[11px] truncate mt-0.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {botSummary.wins > 0
+                        ? `${botSummary.label} · Évolue à chaque victoire`
+                        : `Calibré sur ton niveau (${botSummary.label})`}
+                    </span>
+                  </span>
+                </span>
+                <ChevronRight
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+              </motion.button>
 
               {/* Carte compacte : Défi tactique du jour */}
               <motion.button

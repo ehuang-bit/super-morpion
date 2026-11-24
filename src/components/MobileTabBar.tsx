@@ -1,5 +1,5 @@
 import { LayoutGroup, motion } from 'framer-motion';
-import { BarChart3, Palette, Swords, Trophy, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bot, Palette, Swords, Trophy, type LucideIcon } from 'lucide-react';
 import { CHIP_SPRING } from '../utils/motion';
 import type { NavTab } from './Sidebar';
 
@@ -10,8 +10,9 @@ interface MobileTabBarProps {
 
 const TABS: readonly { id: NavTab; label: string; icon: LucideIcon }[] = [
   { id: 'play', label: 'Jouer', icon: Swords },
+  { id: 'bot', label: 'Bot', icon: Bot },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
-  { id: 'leaderboard', label: 'Classement', icon: Trophy },
+  { id: 'leaderboard', label: 'Rang', icon: Trophy },
   { id: 'customize', label: 'Style', icon: Palette },
 ];
 
@@ -23,7 +24,7 @@ export function MobileTabBar({ activeTab, onSelectTab }: MobileTabBarProps) {
   return (
     <nav
       aria-label="Navigation principale"
-      className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-4"
+      className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-5"
       style={{
         backgroundColor: 'var(--bg-board)',
         borderTop: '1px solid var(--border-main)',

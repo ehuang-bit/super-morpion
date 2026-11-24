@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { getEloTier } from '@shared/elo';
+import { getEloTier, INITIAL_ELO } from '@shared/elo';
+import { getBotLevelProfile, type BotProgressState } from '@shared/botEngine';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
 import {
   MOVE_TIME_LIMIT_MS,
@@ -11,6 +12,7 @@ import {
 } from '@shared/protocol';
 import { CheckCircle2, Eye, Flag, LogOut, RotateCcw, X } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
+import { BotMatchView } from './components/BotMatchView';
 import { CustomizeView } from './components/CustomizeView';
 import { DailyPuzzleView } from './components/DailyPuzzleView';
 import { EmoteBar } from './components/EmoteBar';
@@ -50,6 +52,7 @@ import {
   type ThemeId,
   type ThemeTransitionOrigin,
 } from './types/theme';
+import { loadBotProgress } from './utils/botStorage';
 import { normalizeRoomCode } from './utils/format';
 import { haptics } from './utils/haptics';
 import { soundEngine } from './utils/soundEngine';
@@ -121,6 +124,26 @@ export function App() {
   const autoAttemptedRef = useRef<string | null>(null);
 
   const onlineGame = useOnlineGame(playerId, profileId, auth.token);
+
+  // Progression locale du bot adaptatif (calibrée sur l'Elo du joueur)
+  const botScopeId = auth.user?.id || profileId;
+  const effectiveRating = onlineGame.playerElo.profile.rating ?? INITIAL_ELO;
+  const [botProgress, setBotProgress] = useState<BotProgressState>(() =>
+    loadBotProgress(botScopeId, effectiveRating),
+  );
+  useEffect(() => {
+    setBotProgress(loadBotProgress(botScopeId, effectiveRating));
+  }, [botScopeId, effectiveRating]);
+
+  const botSummary = useMemo(() => {
+    const prof = getBotLevelProfile(botProgress.level);
+    return {
+      level: prof.level,
+      label: prof.label,
+      elo: prof.elo,
+      wins: botProgress.wins,
+    };
+  }, [botProgress.level, botProgress.wins]);
 
   // Compte connecté : le nom en partie personnalisé prime sur le pseudo du compte
   const activePseudo =
@@ -512,17 +535,19 @@ export function App() {
         onlineGame.snapshot.phase === 'finished'),
   );
   const viewKey =
-    activeTab === 'daily'
-      ? 'daily'
-      : activeTab === 'stats'
-        ? 'stats'
-        : activeTab === 'leaderboard'
-          ? 'leaderboard'
-          : activeTab === 'customize'
-            ? 'customize'
-            : inMatchView
-              ? `match-${onlineGame.snapshot?.code ?? ''}`
-              : 'home';
+    activeTab === 'bot'
+      ? 'bot'
+      : activeTab === 'daily'
+        ? 'daily'
+        : activeTab === 'stats'
+          ? 'stats'
+          : activeTab === 'leaderboard'
+            ? 'leaderboard'
+            : activeTab === 'customize'
+              ? 'customize'
+              : inMatchView
+                ? `match-${onlineGame.snapshot?.code ?? ''}`
+                : 'home';
 
   const victoryCardData: VictoryCardData | null = useMemo(() => {
     if (!liveSnapshot || liveSnapshot.phase !== 'finished') return null;
@@ -563,6 +588,20 @@ export function App() {
           onBackToPlay={() => setActiveTab('play')}
           hapticsEnabled={hapticsEnabled}
           onToggleHaptics={handleToggleHaptics}
+        />
+      );
+    }
+
+    // 0a. Bot algorithmique adaptatif
+    if (activeTab === 'bot') {
+      return (
+        <BotMatchView
+          scopeId={botScopeId}
+          pseudo={activePseudo}
+          playerElo={onlineGame.playerElo.profile}
+          boardPrefs={boardPrefs}
+          onBackToPlay={() => setActiveTab('play')}
+          onProgressChange={setBotProgress}
         />
       );
     }
@@ -1002,6 +1041,8 @@ export function App() {
         onCancelWaitingOrPrompt={handleLeaveOnline}
         onOpenStats={() => setActiveTab('stats')}
         onOpenDaily={() => setActiveTab('daily')}
+        onOpenBot={() => setActiveTab('bot')}
+        botSummary={botSummary}
         tutorialRequest={tutorialRequest}
       />
     );

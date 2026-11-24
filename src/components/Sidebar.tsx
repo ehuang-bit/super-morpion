@@ -4,6 +4,7 @@ import { BrandLogo } from './BrandLogo';
 import {
   BarChart3,
   BookOpen,
+  Bot,
   LogIn,
   LogOut,
   Palette,
@@ -19,7 +20,7 @@ import {
 import { CHIP_SPRING } from '../utils/motion';
 import { StreakPill } from './StreakBadge';
 
-export type NavTab = 'play' | 'daily' | 'stats' | 'leaderboard' | 'customize';
+export type NavTab = 'play' | 'bot' | 'daily' | 'stats' | 'leaderboard' | 'customize';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -41,6 +42,7 @@ type NavItemId = NavTab | 'rules';
 
 const NAV_ITEMS: readonly { id: NavItemId; label: string; icon: LucideIcon }[] = [
   { id: 'play', label: 'Plateau & Duel', icon: Swords },
+  { id: 'bot', label: 'Bot adaptatif', icon: Bot },
   { id: 'daily', label: 'Défi du jour', icon: Target },
   { id: 'stats', label: 'Mes statistiques', icon: BarChart3 },
   { id: 'leaderboard', label: 'Classement général', icon: Trophy },
