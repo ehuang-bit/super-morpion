@@ -5,9 +5,6 @@
  * Firebase ne sert qu'à prouver l'identité : on récupère un jeton signé par
  * Google, que le serveur vérifie avant d'ouvrir sa propre session de jeu.
  * La session Firebase est fermée aussitôt après.
- *
- * Tout est désactivé tant que les variables VITE_FIREBASE_* ne sont pas
- * définies (voir README) : les boutons n'apparaissent alors simplement pas.
  */
 import type { Auth } from 'firebase/auth';
 import {
@@ -16,6 +13,10 @@ import {
 } from '@shared/firebasePublicConfig';
 
 export type SocialProvider = 'google' | 'apple' | 'microsoft';
+
+export type SocialSignInResult =
+  | { kind: 'token'; idToken: string }
+  | { kind: 'redirecting' };
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || FIREBASE_PUBLIC_CONFIG.apiKey,
@@ -47,10 +48,17 @@ export const emailLinkEnabled =
   firebaseEnabled && import.meta.env.VITE_AUTH_EMAIL_LINK !== 'false';
 
 const EMAIL_FOR_LINK_KEY = 'sm_email_for_link';
+const SOCIAL_REDIRECT_KEY = 'sm_social_redirect_pending';
 
 let authPromise: Promise<Auth> | null = null;
 
-async function getFirebaseAuth(): Promise<Auth> {
+function mapFirebaseLocale(locale?: string): string {
+  if (!locale) return 'fr';
+  if (locale === 'zh') return 'zh-CN';
+  return locale;
+}
+
+async function getFirebaseAuth(locale?: string): Promise<Auth> {
   if (!firebaseEnabled) {
     throw new Error('Connexion externe non configurée.');
   }
@@ -69,26 +77,35 @@ async function getFirebaseAuth(): Promise<Auth> {
           appId: config.appId,
         });
       const auth = getAuth(app);
-      auth.languageCode = 'fr';
+      auth.languageCode = mapFirebaseLocale(locale);
       return auth;
     })();
   }
-  return authPromise;
+  const auth = await authPromise;
+  if (locale) {
+    auth.languageCode = mapFirebaseLocale(locale);
+  }
+  return auth;
+}
+
+function getFirebaseErrorCode(err: unknown): string {
+  return typeof err === 'object' && err && 'code' in err
+    ? String((err as { code: unknown }).code)
+    : '';
 }
 
 function friendlyFirebaseError(err: unknown): Error {
-  const code =
-    typeof err === 'object' && err && 'code' in err
-      ? String((err as { code: unknown }).code)
-      : '';
+  const code = getFirebaseErrorCode(err);
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
   const messages: Record<string, string> = {
     'auth/popup-closed-by-user': 'Connexion annulée.',
     'auth/cancelled-popup-request': 'Connexion annulée.',
     'auth/popup-blocked':
       'La fenêtre de connexion a été bloquée. Autorisez les pop-ups pour ce site.',
     'auth/network-request-failed': 'Réseau indisponible, réessayez.',
-    'auth/unauthorized-domain':
-      'Ce domaine n’est pas autorisé dans la configuration Firebase.',
+    'auth/unauthorized-domain': host
+      ? `Le domaine « ${host} » doit être ajouté dans Firebase → Authentication → Domaines autorisés.`
+      : 'Ce domaine n’est pas autorisé dans la configuration Firebase.',
     'auth/operation-not-allowed':
       'Ce mode de connexion n’est pas activé dans Firebase.',
     'auth/invalid-email': 'Adresse e-mail invalide.',
@@ -98,43 +115,116 @@ function friendlyFirebaseError(err: unknown): Error {
       'Cette adresse est déjà liée à un autre mode de connexion.',
     'auth/too-many-requests': 'Trop de tentatives. Patientez un instant.',
   };
-  return new Error(messages[code] ?? 'Connexion impossible pour le moment.');
+  const friendly = new Error(
+    messages[code] ?? 'Connexion impossible pour le moment.',
+  ) as Error & { firebaseCode?: string };
+  if (code) friendly.firebaseCode = code;
+  return friendly;
 }
 
-/** Ouvre la fenêtre du fournisseur et renvoie un jeton d'identité vérifiable. */
-export async function signInWithSocial(provider: SocialProvider): Promise<string> {
-  const auth = await getFirebaseAuth();
-  const mod = await import('firebase/auth');
-  let authProvider;
+function buildAuthProvider(
+  mod: typeof import('firebase/auth'),
+  provider: SocialProvider,
+  locale?: string,
+) {
   if (provider === 'google') {
     const p = new mod.GoogleAuthProvider();
+    p.addScope('email');
+    p.addScope('profile');
     p.setCustomParameters({ prompt: 'select_account' });
-    authProvider = p;
-  } else if (provider === 'apple') {
+    return p;
+  }
+  if (provider === 'apple') {
     const p = new mod.OAuthProvider('apple.com');
     p.addScope('email');
     p.addScope('name');
-    p.setCustomParameters({ locale: 'fr_FR' });
-    authProvider = p;
-  } else {
-    const p = new mod.OAuthProvider('microsoft.com');
-    p.setCustomParameters({ prompt: 'select_account' });
-    authProvider = p;
+    p.setCustomParameters({ locale: locale === 'en' ? 'en_US' : 'fr_FR' });
+    return p;
   }
+  const p = new mod.OAuthProvider('microsoft.com');
+  p.setCustomParameters({ prompt: 'select_account' });
+  return p;
+}
+
+/**
+ * Ouvre la fenêtre du fournisseur et renvoie un jeton d'identité vérifiable.
+ * Si la pop-up est bloquée (ex. navigateur mobile intégré), bascule automatiquement
+ * sur une redirection OAuth sécurisée.
+ */
+export async function signInWithSocial(
+  provider: SocialProvider,
+  locale?: string,
+): Promise<SocialSignInResult> {
+  const auth = await getFirebaseAuth(locale);
+  const mod = await import('firebase/auth');
+  const authProvider = buildAuthProvider(mod, provider, locale);
 
   try {
     const cred = await mod.signInWithPopup(auth, authProvider);
-    const token = await cred.user.getIdToken();
+    const idToken = await cred.user.getIdToken();
     void mod.signOut(auth);
-    return token;
+    return { kind: 'token', idToken };
+  } catch (err) {
+    const code = getFirebaseErrorCode(err);
+    if (
+      code === 'auth/popup-blocked' ||
+      code === 'auth/operation-not-supported-in-this-environment'
+    ) {
+      try {
+        sessionStorage.setItem(SOCIAL_REDIRECT_KEY, provider);
+      } catch {
+        // Ignorer si sessionStorage est indisponible
+      }
+      try {
+        await mod.signInWithRedirect(auth, authProvider);
+        return { kind: 'redirecting' };
+      } catch (redirectErr) {
+        try {
+          sessionStorage.removeItem(SOCIAL_REDIRECT_KEY);
+        } catch {
+          // Ignorer
+        }
+        throw friendlyFirebaseError(redirectErr);
+      }
+    }
+    throw friendlyFirebaseError(err);
+  }
+}
+
+/** Vérifie si un retour de redirection Google/OAuth est en attente. */
+export function hasPendingSocialRedirect(): boolean {
+  if (!firebaseEnabled || typeof window === 'undefined') return false;
+  try {
+    return Boolean(sessionStorage.getItem(SOCIAL_REDIRECT_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/** Finalise une connexion OAuth par redirection si elle vient de se terminer. */
+export async function consumeSocialRedirectResult(): Promise<string | null> {
+  if (!hasPendingSocialRedirect()) return null;
+  try {
+    sessionStorage.removeItem(SOCIAL_REDIRECT_KEY);
+  } catch {
+    // Ignorer
+  }
+  const auth = await getFirebaseAuth();
+  const mod = await import('firebase/auth');
+  try {
+    const cred = await mod.getRedirectResult(auth);
+    if (!cred?.user) return null;
+    const idToken = await cred.user.getIdToken();
+    void mod.signOut(auth);
+    return idToken;
   } catch (err) {
     throw friendlyFirebaseError(err);
   }
 }
 
 /** Envoie un lien de connexion à usage unique par e-mail. */
-export async function sendMagicLink(email: string): Promise<void> {
-  const auth = await getFirebaseAuth();
+export async function sendMagicLink(email: string, locale?: string): Promise<void> {
+  const auth = await getFirebaseAuth(locale);
   const mod = await import('firebase/auth');
   try {
     await mod.sendSignInLinkToEmail(auth, email, {

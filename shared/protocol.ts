@@ -266,6 +266,8 @@ export interface AuthUser {
   username: string;
   /** Nom affiché en partie, choisi librement. Absent ou null : `username`. */
   gameName?: string | null;
+  /** Adresse e-mail associée au compte (visible uniquement par son propriétaire). */
+  email?: string | null;
   createdAt: number;
   provider?: AuthProvider;
   avatarUrl?: string | null;

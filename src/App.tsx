@@ -96,11 +96,11 @@ const DemoPanel =
   import.meta.env.DEV && DEMO_MODE ? lazy(() => import('./dev/DemoPanel')) : null;
 
 export function App() {
-  const { t, translateRoundKey } = useI18n();
+  const { locale, t, translateRoundKey } = useI18n();
   const playerId = useMemo(() => getOrCreatePlayerId(), []);
   const profileId = useMemo(() => getOrCreateProfileId(), []);
 
-  const auth = useAuth(profileId);
+  const auth = useAuth(profileId, locale);
 
   const [pseudo, setPseudo] = useState<string>(() => getSavedPseudo());
   const [timeControl, setTimeControl] = useState<TimeControl>('unlimited');
@@ -1212,6 +1212,7 @@ export function App() {
         onOpenDaily={() => setActiveTab('daily')}
         onOpenBot={() => setActiveTab('bot')}
         onOpenTournament={() => setActiveTab('tournament')}
+        onOpenAuth={() => setAuthModalOpen(true)}
         botSummary={botSummary}
         tutorialRequest={tutorialRequest}
       />

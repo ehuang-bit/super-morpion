@@ -186,7 +186,7 @@ export function Sidebar({
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden"
                     style={{
                       backgroundColor: user
                         ? 'var(--x-surface)'
@@ -197,7 +197,16 @@ export function Sidebar({
                       }`,
                     }}
                   >
-                    {initial}
+                    {user?.avatarUrl ? (
+                      <img
+                        src={user.avatarUrl}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      initial
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
@@ -219,6 +228,15 @@ export function Sidebar({
                         {user ? t('nav.account') : t('nav.guest')}
                       </span>
                     </div>
+                    {user?.email && (
+                      <div
+                        className="text-[10px] truncate mt-0.5"
+                        style={{ color: 'var(--text-muted)' }}
+                        title={user.email}
+                      >
+                        {user.email}
+                      </div>
+                    )}
                     {user?.streak && (
                       <div className="mt-1">
                         <StreakPill

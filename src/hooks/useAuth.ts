@@ -3,8 +3,10 @@ import type { EloProfile } from '@shared/elo';
 import type { AccountStreak, AuthUser } from '@shared/protocol';
 import {
   completeMagicLink,
+  consumeSocialRedirectResult,
   getPendingMagicLinkEmail,
   hasMagicLinkInUrl,
+  hasPendingSocialRedirect,
   sendMagicLink,
   signInWithSocial,
   type SocialProvider,
@@ -39,6 +41,7 @@ export interface AuthOutcome {
   ok: boolean;
   isNew?: boolean;
   mergedGuest?: boolean;
+  redirecting?: boolean;
 }
 
 export interface StreakNotice {
@@ -89,7 +92,7 @@ async function postJson<T>(
   return authFetchJson<T>(path, 'POST', body, token);
 }
 
-export function useAuth(profileId: string) {
+export function useAuth(profileId: string, locale?: string) {
   const [token, setToken] = useState<string | null>(() => getSavedAuthToken());
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState<boolean>(() => Boolean(getSavedAuthToken()));
@@ -103,6 +106,7 @@ export function useAuth(profileId: string) {
   const [magicLinkSentTo, setMagicLinkSentTo] = useState<string | null>(null);
   const [magicLinkNeedsEmail, setMagicLinkNeedsEmail] = useState<boolean>(false);
   const magicLinkHandledRef = useRef(false);
+  const redirectHandledRef = useRef(false);
 
   const guestPayload = useCallback(
     () => ({ guestProfileId: profileId, guestPseudo: getSavedPseudo() }),
@@ -130,39 +134,42 @@ export function useAuth(profileId: string) {
     }
   }, []);
 
-  const refreshSession = useCallback(async (overrideToken?: string | null) => {
-    const activeToken = overrideToken !== undefined ? overrideToken : token;
-    if (!activeToken) return null;
-    const json = await authFetchJson<{ user: AuthUser | null }>(
-      '/auth/me',
-      'GET',
-      undefined,
-      activeToken,
-    );
-    if (json.ok && json.data?.user) {
-      setUser((prev) => {
-        const nextUser = json.data!.user!;
-        if (
-          prev?.streak &&
-          nextUser.streak &&
-          !prev.streak.activeToday &&
-          nextUser.streak.activeToday &&
-          nextUser.streak.current > 0
-        ) {
-          setStreakNotice({
-            days: nextUser.streak.current,
-            milestone: [3, 7, 14, 30, 60, 100].includes(nextUser.streak.current)
-              ? nextUser.streak.current
-              : null,
-          });
-          soundEngine.playDailySolved();
-        }
-        return nextUser;
-      });
-      return json.data.user;
-    }
-    return null;
-  }, [token]);
+  const refreshSession = useCallback(
+    async (overrideToken?: string | null) => {
+      const activeToken = overrideToken !== undefined ? overrideToken : token;
+      if (!activeToken) return null;
+      const json = await authFetchJson<{ user: AuthUser | null }>(
+        '/auth/me',
+        'GET',
+        undefined,
+        activeToken,
+      );
+      if (json.ok && json.data?.user) {
+        setUser((prev) => {
+          const nextUser = json.data!.user!;
+          if (
+            prev?.streak &&
+            nextUser.streak &&
+            !prev.streak.activeToday &&
+            nextUser.streak.activeToday &&
+            nextUser.streak.current > 0
+          ) {
+            setStreakNotice({
+              days: nextUser.streak.current,
+              milestone: [3, 7, 14, 30, 60, 100].includes(nextUser.streak.current)
+                ? nextUser.streak.current
+                : null,
+            });
+            soundEngine.playDailySolved();
+          }
+          return nextUser;
+        });
+        return json.data.user;
+      }
+      return null;
+    },
+    [token],
+  );
 
   // Vérifie la session enregistrée au chargement
   useEffect(() => {
@@ -220,6 +227,32 @@ export function useAuth(profileId: string) {
     [applySession, guestPayload],
   );
 
+  // Finalise une éventuelle redirection OAuth Google (ex. pop-up bloquée sur mobile)
+  useEffect(() => {
+    if (redirectHandledRef.current || !hasPendingSocialRedirect()) return;
+    redirectHandledRef.current = true;
+    let active = true;
+    const finishRedirect = async () => {
+      setLoading(true);
+      try {
+        const idToken = await consumeSocialRedirectResult();
+        if (active && idToken) {
+          await exchangeIdToken(idToken);
+        }
+      } catch (err) {
+        if (active) {
+          setError(err instanceof Error ? err.message : 'Connexion impossible.');
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void finishRedirect();
+    return () => {
+      active = false;
+    };
+  }, [exchangeIdToken]);
+
   const completeEmailLink = useCallback(
     async (email: string): Promise<AuthOutcome> => {
       setError(null);
@@ -258,8 +291,11 @@ export function useAuth(profileId: string) {
       setError(null);
       setLoading(true);
       try {
-        const idToken = await signInWithSocial(provider);
-        return await exchangeIdToken(idToken);
+        const res = await signInWithSocial(provider, locale);
+        if (res.kind === 'redirecting') {
+          return { ok: true, redirecting: true };
+        }
+        return await exchangeIdToken(res.idToken);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Connexion impossible.');
         return { ok: false };
@@ -267,30 +303,38 @@ export function useAuth(profileId: string) {
         setLoading(false);
       }
     },
-    [exchangeIdToken],
+    [exchangeIdToken, locale],
   );
 
-  const sendEmailLink = useCallback(async (email: string): Promise<boolean> => {
-    setError(null);
-    setLoading(true);
-    try {
-      await sendMagicLink(email.trim());
-      setMagicLinkSentTo(email.trim());
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Envoi impossible.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const sendEmailLink = useCallback(
+    async (email: string): Promise<boolean> => {
+      setError(null);
+      setLoading(true);
+      try {
+        await sendMagicLink(email.trim(), locale);
+        setMagicLinkSentTo(email.trim());
+        return true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Envoi impossible.');
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [locale],
+  );
 
   const register = useCallback(
-    async (username: string, password: string): Promise<AuthOutcome> => {
+    async (
+      username: string,
+      password: string,
+      email?: string,
+    ): Promise<AuthOutcome> => {
       setError(null);
       setLoading(true);
       const json = await postJson<AuthApiPayload>('/auth/register', {
-        username,
+        ...(email ? { email: email.trim() } : {}),
+        ...(username.trim() ? { username: username.trim() } : {}),
         password,
         ...guestPayload(),
       });
@@ -300,17 +344,23 @@ export function useAuth(profileId: string) {
         return { ok: false };
       }
       applySession(json.data);
-      return { ok: true, isNew: true, mergedGuest: json.data.mergedGuest };
+      return {
+        ok: true,
+        isNew: Boolean(json.data.isNew),
+        mergedGuest: json.data.mergedGuest,
+      };
     },
     [applySession, guestPayload],
   );
 
   const login = useCallback(
-    async (username: string, password: string): Promise<AuthOutcome> => {
+    async (identifier: string, password: string): Promise<AuthOutcome> => {
       setError(null);
       setLoading(true);
+      const cleanId = identifier.trim();
       const json = await postJson<AuthApiPayload>('/auth/login', {
-        username,
+        identifier: cleanId,
+        username: cleanId,
         password,
       });
       setLoading(false);

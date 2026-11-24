@@ -32,7 +32,9 @@ Application web **Super Morpion (Ultimate Tic-Tac-Toe)** 1v1 compétitive en lig
 
 ## Connexion Google / Apple / Microsoft / e-mail
 
-Configurée avec le projet Firebase `super-morpion` (Google + lien magique par e-mail activés, domaine `super-morpion-duel.netlify.app` autorisé). La configuration Web publique est dans `shared/firebasePublicConfig.ts`.
+- **E-mail + mot de passe** : natif sur Postgres (`/api/game/auth/register` et `/api/game/auth/login`), fonctionne immédiatement sans configuration externe.
+- **Google & lien magique par e-mail** : configuré avec le projet Firebase `super-morpion` (`shared/firebasePublicConfig.ts`).
+  Pour activer Google et le lien magique sur Vercel, ajouter `super-morpion.vercel.app` dans **Firebase Console → Authentication → Settings → Domaines autorisés**.
 
 Pour la refaire sur un autre projet :
 

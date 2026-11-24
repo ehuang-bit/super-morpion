@@ -9,6 +9,7 @@ import {
   KeyRound,
   LogIn,
   Mail,
+  Send,
   Sparkles,
   Trophy,
   User,
@@ -21,6 +22,7 @@ import {
   type SocialProvider,
 } from '../auth/firebase';
 import type { AuthController } from '../hooks/useAuth';
+import { useI18n, type TranslationKey } from '../i18n';
 import { MODAL_TRANSITION, SMOOTH_EASE } from '../utils/motion';
 
 interface AuthModalProps {
@@ -33,27 +35,45 @@ interface AuthModalProps {
 }
 
 type View = 'main' | 'email' | 'email-sent' | 'email-confirm' | 'onboarding';
+type EmailMethod = 'password' | 'magic';
 
-const PROVIDER_LABELS: Record<SocialProvider, string> = {
-  google: 'Continuer avec Google',
-  apple: 'Continuer avec Apple',
-  microsoft: 'Continuer avec Microsoft',
+const PROVIDER_LABEL_KEYS: Record<SocialProvider, TranslationKey> = {
+  google: 'auth.continueGoogle',
+  apple: 'auth.continueApple',
+  microsoft: 'auth.continueMicrosoft',
 };
 
 function GoogleLogo() {
   return (
-    <svg viewBox="0 0 48 48" className="w-[18px] h-[18px]" aria-hidden="true">
-      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
-      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+    <svg viewBox="0 0 48 48" className="w-[18px] h-[18px] shrink-0" aria-hidden="true">
+      <path
+        fill="#FFC107"
+        d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"
+      />
+      <path
+        fill="#FF3D00"
+        d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"
+      />
+      <path
+        fill="#4CAF50"
+        d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"
+      />
+      <path
+        fill="#1976D2"
+        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"
+      />
     </svg>
   );
 }
 
 function AppleLogo() {
   return (
-    <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" aria-hidden="true" fill="currentColor">
+    <svg
+      viewBox="0 0 24 24"
+      className="w-[18px] h-[18px] shrink-0"
+      aria-hidden="true"
+      fill="currentColor"
+    >
       <path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.6 1.1 8.75.73 1.05 1.6 2.24 2.73 2.2 1.1-.05 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.4 1.2-2.46-.03-.01-2.3-.88-2.32-3.5zM14.2 6.13c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.65-1.05 1.68-.92 2.67.97.08 1.96-.49 2.56-1.22z" />
     </svg>
   );
@@ -61,7 +81,7 @@ function AppleLogo() {
 
 function MicrosoftLogo() {
   return (
-    <svg viewBox="0 0 24 24" className="w-[16px] h-[16px]" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="w-[16px] h-[16px] shrink-0" aria-hidden="true">
       <rect x="2" y="2" width="9.5" height="9.5" fill="#F25022" />
       <rect x="12.5" y="2" width="9.5" height="9.5" fill="#7FBA00" />
       <rect x="2" y="12.5" width="9.5" height="9.5" fill="#00A4EF" />
@@ -133,13 +153,19 @@ export function AuthModal({
   onClose,
   onSignedIn,
 }: AuthModalProps) {
-  const hasExternal = enabledSocialProviders.length > 0 || emailLinkEnabled;
+  const { t } = useI18n();
   const [view, setView] = useState<View>('main');
+  const [emailMethod, setEmailMethod] = useState<EmailMethod>('password');
+  const [emailMode, setEmailMode] = useState<'register' | 'login'>('register');
   const [mode, setMode] = useState<'login' | 'register'>('register');
-  const [showPasswordForm, setShowPasswordForm] = useState(!hasExternal);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+
   const [username, setUsername] = useState(defaultPseudo || '');
+  const [emailUsername, setEmailUsername] = useState(defaultPseudo || '');
   const [password, setPassword] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showEmailPassword, setShowEmailPassword] = useState(false);
   const [guestName, setGuestName] = useState(defaultPseudo || '');
   const [email, setEmail] = useState('');
   const [chosenName, setChosenName] = useState('');
@@ -167,6 +193,7 @@ export function AuthModal({
   useEffect(() => {
     if (defaultPseudo) {
       setUsername((prev) => prev || defaultPseudo);
+      setEmailUsername((prev) => prev || defaultPseudo);
       setGuestName((prev) => prev || defaultPseudo);
     }
   }, [defaultPseudo]);
@@ -191,7 +218,7 @@ export function AuthModal({
     setBusyProvider(provider);
     const res = await auth.signInSocial(provider);
     setBusyProvider(null);
-    if (res.ok && !res.isNew) onSignedIn();
+    if (res.ok && !res.isNew && !res.redirecting) onSignedIn();
   };
 
   const handleAccountSubmit = async (e: FormEvent) => {
@@ -205,6 +232,20 @@ export function AuthModal({
     if (res.ok) {
       setPassword('');
       onSignedIn();
+    }
+  };
+
+  const handleEmailPasswordSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail || emailPassword.length < 6) return;
+    const res =
+      emailMode === 'login'
+        ? await auth.login(cleanEmail, emailPassword)
+        : await auth.register(emailUsername.trim(), emailPassword, cleanEmail);
+    if (res.ok) {
+      setEmailPassword('');
+      if (!res.isNew) onSignedIn();
     }
   };
 
@@ -234,7 +275,7 @@ export function AuthModal({
   };
 
   const handleGuestClick = () => {
-    onContinueAsGuest(guestName.trim() || defaultPseudo.trim() || 'Invité');
+    onContinueAsGuest(guestName.trim() || defaultPseudo.trim() || t('nav.guest'));
   };
 
   const renderHeader = (title: string, subtitle: ReactNode, back?: View) => (
@@ -244,7 +285,7 @@ export function AuthModal({
           <button
             type="button"
             onClick={() => switchView(back)}
-            aria-label="Retour"
+            aria-label={t('common.back')}
             className="tactile-btn mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-lg shrink-0"
             style={{
               backgroundColor: 'var(--bg-surface)',
@@ -272,7 +313,7 @@ export function AuthModal({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Fermer"
+          aria-label={t('common.close')}
           className="tactile-btn inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
           style={{
             backgroundColor: 'var(--bg-surface)',
@@ -288,16 +329,13 @@ export function AuthModal({
 
   const renderMain = () => (
     <>
-      {renderHeader(
-        'Entrer dans l’arène',
-        'Un compte garde ton classement, ton historique et ta place au classement général.',
-      )}
+      {renderHeader(t('auth.enterArena'), t('auth.subtitle'))}
 
-      <ul className="flex flex-wrap gap-1.5" aria-label="Avantages du compte">
+      <ul className="flex flex-wrap gap-1.5" aria-label={t('auth.title')}>
         {[
-          { icon: Trophy, label: 'Classement général' },
-          { icon: Sparkles, label: 'Elo sauvegardé' },
-          { icon: Check, label: 'Tous tes appareils' },
+          { icon: Trophy, label: t('auth.perkLeaderboard') },
+          { icon: Sparkles, label: t('auth.perkElo') },
+          { icon: Check, label: t('auth.perkDevices') },
         ].map(({ icon: Icon, label }) => (
           <li
             key={label}
@@ -313,76 +351,75 @@ export function AuthModal({
         ))}
       </ul>
 
-      {hasExternal && (
-        <div className="flex flex-col gap-2">
-          {enabledSocialProviders.map((provider) => {
-            const Logo = PROVIDER_LOGOS[provider];
-            const isApple = provider === 'apple';
-            return (
-              <motion.button
-                key={provider}
-                type="button"
-                whileHover={{ y: -1 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => void handleSocial(provider)}
-                disabled={auth.loading}
-                className="w-full rounded-[11px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2.5 disabled:opacity-60"
-                style={
-                  isApple
-                    ? { backgroundColor: '#000', color: '#fff', border: '1px solid #000' }
-                    : {
-                        backgroundColor: '#fff',
-                        color: '#1f1f1f',
-                        border: '1px solid #dadce0',
-                      }
-                }
-              >
-                <Logo />
-                <span>
-                  {busyProvider === provider ? 'Connexion…' : PROVIDER_LABELS[provider]}
-                </span>
-              </motion.button>
-            );
-          })}
-
-          {emailLinkEnabled && (
+      <div className="flex flex-col gap-2">
+        {enabledSocialProviders.map((provider) => {
+          const Logo = PROVIDER_LOGOS[provider];
+          const isApple = provider === 'apple';
+          return (
             <motion.button
+              key={provider}
               type="button"
               whileHover={{ y: -1 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => switchView('email')}
-              className="w-full rounded-[11px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2.5"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-strong)',
-              }}
+              onClick={() => void handleSocial(provider)}
+              disabled={auth.loading}
+              className="w-full rounded-[11px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2.5 disabled:opacity-60"
+              style={
+                isApple
+                  ? { backgroundColor: '#000', color: '#fff', border: '1px solid #000' }
+                  : {
+                      backgroundColor: '#fff',
+                      color: '#1f1f1f',
+                      border: '1px solid #dadce0',
+                    }
+              }
             >
-              <Mail className="w-4 h-4" />
-              <span>Continuer avec un e-mail</span>
+              <Logo />
+              <span>
+                {busyProvider === provider
+                  ? t('auth.connecting')
+                  : t(PROVIDER_LABEL_KEYS[provider])}
+              </span>
             </motion.button>
-          )}
-        </div>
-      )}
+          );
+        })}
+
+        <motion.button
+          type="button"
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => {
+            setEmailMethod('password');
+            switchView('email');
+          }}
+          className="w-full rounded-[11px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2.5"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-strong)',
+          }}
+        >
+          <Mail className="w-4 h-4 shrink-0" />
+          <span>{t('auth.continueEmail')}</span>
+        </motion.button>
+      </div>
 
       <ErrorBox message={view === 'main' ? auth.error : null} />
 
-      {hasExternal && (
-        <button
-          type="button"
-          onClick={() => setShowPasswordForm((v) => !v)}
-          aria-expanded={showPasswordForm}
-          className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold self-center"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          <KeyRound className="w-3.5 h-3.5" />
-          <span>Avec un pseudo et un mot de passe</span>
-          <ChevronDown
-            className="w-3.5 h-3.5 transition-transform duration-200"
-            style={{ transform: showPasswordForm ? 'rotate(180deg)' : 'none' }}
-          />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => setShowPasswordForm((v) => !v)}
+        aria-expanded={showPasswordForm}
+        className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold self-center"
+        style={{ color: 'var(--text-secondary)' }}
+      >
+        <KeyRound className="w-3.5 h-3.5" />
+        <span>{t('auth.withUsernamePassword')}</span>
+        <ChevronDown
+          className="w-3.5 h-3.5 transition-transform duration-200"
+          style={{ transform: showPasswordForm ? 'rotate(180deg)' : 'none' }}
+        />
+      </button>
 
       <AnimatePresence initial={false}>
         {showPasswordForm && (
@@ -432,7 +469,7 @@ export function AuthModal({
                       ) : (
                         <UserPlus className="w-3.5 h-3.5" />
                       )}
-                      {m === 'login' ? 'Se connecter' : 'Créer un compte'}
+                      {m === 'login' ? t('auth.loginTab') : t('auth.registerTab')}
                     </span>
                   </button>
                 ))}
@@ -442,7 +479,7 @@ export function AuthModal({
                 <input
                   id="auth-username-input"
                   type="text"
-                  maxLength={20}
+                  maxLength={mode === 'login' ? 254 : 20}
                   required
                   autoComplete="username"
                   value={username}
@@ -450,8 +487,16 @@ export function AuthModal({
                     setUsername(e.target.value);
                     if (auth.error) auth.clearError();
                   }}
-                  placeholder="Pseudo (3 à 20 caractères)"
-                  aria-label="Pseudo"
+                  placeholder={
+                    mode === 'login'
+                      ? t('auth.emailOrUsernamePlaceholder')
+                      : t('auth.usernamePlaceholder')
+                  }
+                  aria-label={
+                    mode === 'login'
+                      ? t('auth.emailOrUsernamePlaceholder')
+                      : t('auth.usernamePlaceholder')
+                  }
                   className="tactile-input w-full rounded-[10px] px-3.5 py-2 text-sm font-medium"
                   style={inputStyle()}
                 />
@@ -468,16 +513,18 @@ export function AuthModal({
                       setPassword(e.target.value);
                       if (auth.error) auth.clearError();
                     }}
-                    placeholder="Mot de passe (6 caractères min.)"
-                    aria-label="Mot de passe"
-                    className="tactile-input w-full rounded-[10px] pl-3.5 pr-10 py-2 text-sm font-medium"
+                    placeholder={t('auth.passwordPlaceholder')}
+                    aria-label={t('auth.passwordPlaceholder')}
+                    className="tactile-input w-full rounded-[10px] ps-3.5 pe-10 py-2 text-sm font-medium"
                     style={inputStyle()}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded"
+                    aria-label={
+                      showPassword ? t('auth.hidePassword') : t('auth.showPassword')
+                    }
+                    className="absolute end-2.5 top-1/2 -translate-y-1/2 p-1 rounded"
                     style={{ color: 'var(--text-muted)' }}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -492,13 +539,17 @@ export function AuthModal({
                     color: 'var(--btn-primary-text)',
                   }}
                 >
-                  {mode === 'login' ? <LogIn className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                  {mode === 'login' ? (
+                    <LogIn className="w-4 h-4" />
+                  ) : (
+                    <UserPlus className="w-4 h-4" />
+                  )}
                   <span>
                     {auth.loading
-                      ? 'Un instant…'
+                      ? t('auth.justAMoment')
                       : mode === 'login'
-                        ? 'Se connecter'
-                        : 'Créer mon compte'}
+                        ? t('auth.loginTab')
+                        : t('auth.createMyAccount')}
                   </span>
                 </button>
               </form>
@@ -507,7 +558,7 @@ export function AuthModal({
         )}
       </AnimatePresence>
 
-      <Divider label="ou jouer tout de suite" />
+      <Divider label={t('auth.orPlayNow')} />
 
       <div className="flex items-center gap-2">
         <input
@@ -515,8 +566,8 @@ export function AuthModal({
           maxLength={20}
           value={guestName}
           onChange={(e) => setGuestName(e.target.value)}
-          placeholder="Pseudo invité"
-          aria-label="Pseudo invité"
+          placeholder={t('auth.guestPlaceholder')}
+          aria-label={t('auth.guestPlaceholder')}
           className="tactile-input flex-1 min-w-0 rounded-[10px] px-3 py-2 text-sm font-medium"
           style={inputStyle()}
         />
@@ -531,59 +582,245 @@ export function AuthModal({
           }}
         >
           <User className="w-3.5 h-3.5" />
-          <span>Invité</span>
+          <span>{t('auth.guestBtn')}</span>
         </button>
       </div>
       <p className="text-[11px] -mt-1.5" style={{ color: 'var(--text-muted)' }}>
-        Ta progression invité sera transférée si tu crées un compte plus tard.
+        {t('auth.guestTransferNote')}
       </p>
     </>
   );
 
   const renderEmail = () => (
     <>
-      {renderHeader(
-        'Connexion par e-mail',
-        'Gmail, iCloud, Outlook… On t’envoie un lien magique, sans mot de passe.',
-        'main',
-      )}
-      <form onSubmit={handleSendLink} className="flex flex-col gap-2.5">
-        <input
-          type="email"
-          required
-          autoFocus
-          autoComplete="email"
-          inputMode="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            if (auth.error) auth.clearError();
+      {renderHeader(t('auth.emailTitle'), t('auth.emailSubtitle'), 'main')}
+
+      {emailLinkEnabled && (
+        <div
+          className="grid grid-cols-2 gap-1 p-1 rounded-[10px]"
+          style={{
+            backgroundColor: 'var(--bg-recessed)',
+            border: '1px solid var(--border-cell)',
           }}
-          placeholder="ton.adresse@icloud.com"
-          aria-label="Adresse e-mail"
-          className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-sm font-medium"
-          style={inputStyle()}
-        />
-        <ErrorBox message={auth.error} />
-        <button
-          type="submit"
-          disabled={auth.loading || !email.includes('@')}
-          className="tactile-btn w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
-          style={{ backgroundColor: 'var(--btn-primary-bg)', color: 'var(--btn-primary-text)' }}
         >
-          <Mail className="w-4 h-4" />
-          <span>{auth.loading ? 'Envoi…' : 'Recevoir mon lien de connexion'}</span>
-        </button>
-      </form>
+          {(['password', 'magic'] as const).map((method) => (
+            <button
+              key={method}
+              type="button"
+              onClick={() => {
+                setEmailMethod(method);
+                auth.clearError();
+              }}
+              className="relative rounded-[7px] py-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+              style={{
+                color: emailMethod === method ? 'var(--text-primary)' : 'var(--text-secondary)',
+              }}
+            >
+              {emailMethod === method && (
+                <motion.span
+                  layoutId="email-method-pill"
+                  className="absolute inset-0 rounded-[7px]"
+                  style={{
+                    backgroundColor: 'var(--bg-board)',
+                    boxShadow: 'var(--shadow-card)',
+                  }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                />
+              )}
+              <span className="relative inline-flex items-center gap-1.5">
+                {method === 'password' ? (
+                  <KeyRound className="w-3.5 h-3.5" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                {method === 'password'
+                  ? t('auth.emailModePassword')
+                  : t('auth.emailModeMagic')}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {emailMethod === 'password' ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold">
+            {(['register', 'login'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setEmailMode(m);
+                  auth.clearError();
+                }}
+                className="rounded-full px-3 py-1 transition-colors"
+                style={{
+                  backgroundColor:
+                    emailMode === m ? 'var(--accent-active-bg)' : 'transparent',
+                  color:
+                    emailMode === m ? 'var(--accent-active-text)' : 'var(--text-secondary)',
+                }}
+              >
+                {m === 'register' ? t('auth.registerTab') : t('auth.loginTab')}
+              </button>
+            ))}
+          </div>
+
+          <form onSubmit={handleEmailPasswordSubmit} className="flex flex-col gap-2.5">
+            <input
+              type={emailMode === 'register' ? 'email' : 'text'}
+              required
+              autoFocus
+              autoComplete={emailMode === 'register' ? 'email' : 'username'}
+              inputMode="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (auth.error) auth.clearError();
+              }}
+              placeholder={
+                emailMode === 'register'
+                  ? t('auth.emailPlaceholder')
+                  : t('auth.emailOrUsernamePlaceholder')
+              }
+              aria-label={
+                emailMode === 'register'
+                  ? t('auth.emailPlaceholder')
+                  : t('auth.emailOrUsernamePlaceholder')
+              }
+              className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-sm font-medium"
+              style={inputStyle()}
+            />
+
+            {emailMode === 'register' && (
+              <input
+                type="text"
+                maxLength={20}
+                autoComplete="nickname"
+                value={emailUsername}
+                onChange={(e) => {
+                  setEmailUsername(e.target.value);
+                  if (auth.error) auth.clearError();
+                }}
+                placeholder={t('auth.usernameOptionalPlaceholder')}
+                aria-label={t('auth.usernameOptionalPlaceholder')}
+                className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-sm font-medium"
+                style={inputStyle()}
+              />
+            )}
+
+            <div className="relative">
+              <input
+                type={showEmailPassword ? 'text' : 'password'}
+                minLength={6}
+                maxLength={100}
+                required
+                autoComplete={emailMode === 'login' ? 'current-password' : 'new-password'}
+                value={emailPassword}
+                onChange={(e) => {
+                  setEmailPassword(e.target.value);
+                  if (auth.error) auth.clearError();
+                }}
+                placeholder={t('auth.passwordPlaceholder')}
+                aria-label={t('auth.passwordPlaceholder')}
+                className="tactile-input w-full rounded-[10px] ps-3.5 pe-10 py-2.5 text-sm font-medium"
+                style={inputStyle()}
+              />
+              <button
+                type="button"
+                onClick={() => setShowEmailPassword((prev) => !prev)}
+                aria-label={
+                  showEmailPassword ? t('auth.hidePassword') : t('auth.showPassword')
+                }
+                className="absolute end-2.5 top-1/2 -translate-y-1/2 p-1 rounded"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {showEmailPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            <ErrorBox message={auth.error} />
+
+            <button
+              type="submit"
+              disabled={
+                auth.loading ||
+                emailPassword.length < 6 ||
+                (emailMode === 'register' ? !email.includes('@') : email.trim().length < 3)
+              }
+              className="tactile-btn w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
+              style={{
+                backgroundColor: 'var(--btn-primary-bg)',
+                color: 'var(--btn-primary-text)',
+              }}
+            >
+              {emailMode === 'login' ? (
+                <LogIn className="w-4 h-4" />
+              ) : (
+                <UserPlus className="w-4 h-4" />
+              )}
+              <span>
+                {auth.loading
+                  ? t('auth.justAMoment')
+                  : emailMode === 'login'
+                    ? t('auth.loginTab')
+                    : t('auth.createMyAccount')}
+              </span>
+            </button>
+          </form>
+        </div>
+      ) : (
+        <form onSubmit={handleSendLink} className="flex flex-col gap-2.5">
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {t('auth.magicDesc')}
+          </p>
+          <input
+            type="email"
+            required
+            autoFocus
+            autoComplete="email"
+            inputMode="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (auth.error) auth.clearError();
+            }}
+            placeholder={t('auth.emailPlaceholder')}
+            aria-label={t('auth.emailPlaceholder')}
+            className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-sm font-medium"
+            style={inputStyle()}
+          />
+          <ErrorBox message={auth.error} />
+          <button
+            type="submit"
+            disabled={auth.loading || !email.includes('@')}
+            className="tactile-btn w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
+            style={{
+              backgroundColor: 'var(--btn-primary-bg)',
+              color: 'var(--btn-primary-text)',
+            }}
+          >
+            <Mail className="w-4 h-4" />
+            <span>{auth.loading ? t('auth.sending') : t('auth.sendMagicBtn')}</span>
+          </button>
+        </form>
+      )}
     </>
   );
 
   const renderEmailSent = () => (
     <>
-      {renderHeader('Vérifie ta boîte mail', 'Le lien est valable une heure.', 'email')}
+      {renderHeader(t('auth.emailSentTitle'), t('auth.emailSentSub'), 'email')}
       <div
         className="rounded-[12px] p-4 flex items-start gap-3"
-        style={{ backgroundColor: 'var(--accent-active-bg)', border: '1px solid var(--accent-active)' }}
+        style={{
+          backgroundColor: 'var(--accent-active-bg)',
+          border: '1px solid var(--accent-active)',
+        }}
       >
         <motion.div
           initial={{ scale: 0.6, rotate: -12, opacity: 0 }}
@@ -595,9 +832,7 @@ export function AuthModal({
           <Mail className="w-4 h-4" />
         </motion.div>
         <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
-          Un lien a été envoyé à <strong>{auth.magicLinkSentTo}</strong>. Ouvre-le
-          sur cet appareil pour entrer directement dans la partie. Pense à
-          regarder dans les indésirables.
+          {t('auth.emailSentBody', { email: auth.magicLinkSentTo ?? '' })}
         </p>
       </div>
     </>
@@ -605,10 +840,7 @@ export function AuthModal({
 
   const renderEmailConfirm = () => (
     <>
-      {renderHeader(
-        'Confirme ton adresse',
-        'Tu as ouvert le lien sur un autre appareil : saisis l’adresse utilisée.',
-      )}
+      {renderHeader(t('auth.emailConfirmTitle'), t('auth.emailConfirmSub'))}
       <form onSubmit={handleConfirmLink} className="flex flex-col gap-2.5">
         <input
           type="email"
@@ -617,8 +849,8 @@ export function AuthModal({
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="ton.adresse@icloud.com"
-          aria-label="Adresse e-mail"
+          placeholder={t('auth.emailPlaceholder')}
+          aria-label={t('auth.emailPlaceholder')}
           className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-sm font-medium"
           style={inputStyle()}
         />
@@ -627,10 +859,13 @@ export function AuthModal({
           type="submit"
           disabled={auth.loading || !email.includes('@')}
           className="tactile-btn w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
-          style={{ backgroundColor: 'var(--btn-primary-bg)', color: 'var(--btn-primary-text)' }}
+          style={{
+            backgroundColor: 'var(--btn-primary-bg)',
+            color: 'var(--btn-primary-text)',
+          }}
         >
           <LogIn className="w-4 h-4" />
-          <span>{auth.loading ? 'Connexion…' : 'Me connecter'}</span>
+          <span>{auth.loading ? t('auth.connecting') : t('auth.signInBtn')}</span>
         </button>
       </form>
     </>
@@ -639,10 +874,8 @@ export function AuthModal({
   const renderOnboarding = () => (
     <>
       {renderHeader(
-        'Bienvenue dans l’arène',
-        auth.onboarding?.mergedGuest
-          ? 'Ta progression invité a été transférée. Choisis le pseudo affiché à tes adversaires.'
-          : 'Choisis le pseudo affiché à tes adversaires et au classement.',
+        t('auth.welcomeTitle'),
+        auth.onboarding?.mergedGuest ? t('auth.welcomeMerged') : t('auth.welcomeChoose'),
       )}
       <form onSubmit={handleOnboardingSubmit} className="flex flex-col gap-2.5">
         <input
@@ -654,7 +887,7 @@ export function AuthModal({
             setChosenName(e.target.value);
             if (auth.error) auth.clearError();
           }}
-          aria-label="Pseudo de joueur"
+          aria-label={t('auth.usernamePlaceholder')}
           className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-base font-semibold"
           style={inputStyle()}
         />
@@ -663,10 +896,13 @@ export function AuthModal({
           type="submit"
           disabled={auth.loading || chosenName.trim().length < 3}
           className="tactile-btn w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50"
-          style={{ backgroundColor: 'var(--btn-primary-bg)', color: 'var(--btn-primary-text)' }}
+          style={{
+            backgroundColor: 'var(--btn-primary-bg)',
+            color: 'var(--btn-primary-text)',
+          }}
         >
           <Sparkles className="w-4 h-4" />
-          <span>{auth.loading ? 'Un instant…' : 'C’est parti'}</span>
+          <span>{auth.loading ? t('auth.justAMoment') : t('auth.letsGo')}</span>
         </button>
       </form>
     </>

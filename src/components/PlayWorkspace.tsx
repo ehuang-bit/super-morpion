@@ -94,6 +94,7 @@ interface PlayWorkspaceProps {
   onOpenDaily: () => void;
   onOpenBot: () => void;
   onOpenTournament: () => void;
+  onOpenAuth: () => void;
   botSummary: {
     level: number;
     label: string;
@@ -158,6 +159,7 @@ export function PlayWorkspace({
   onOpenDaily,
   onOpenBot,
   onOpenTournament,
+  onOpenAuth,
   botSummary,
   tutorialRequest,
 }: PlayWorkspaceProps) {
@@ -721,13 +723,26 @@ export function PlayWorkspace({
                 {/* Pseudo, pour les invités seulement */}
                 {!user && (
                   <div>
-                    <label
-                      htmlFor="play-pseudo-input"
-                      className="block text-xs font-semibold mb-1"
-                      style={{ color: 'var(--text-secondary)' }}
-                    >
-                      {t('play.pseudoGuest')}
-                    </label>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label
+                        htmlFor="play-pseudo-input"
+                        className="text-xs font-semibold"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        {t('play.pseudoGuest')}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={onOpenAuth}
+                        className="tactile-btn inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        style={{
+                          backgroundColor: 'var(--accent-active-bg)',
+                          color: 'var(--accent-active-text)',
+                        }}
+                      >
+                        <span>{t('auth.quickGoogleEmail')}</span>
+                      </button>
+                    </div>
                     <input
                       id="play-pseudo-input"
                       type="text"

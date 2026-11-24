@@ -7,6 +7,13 @@ import {
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { getPool } from './db.js';
 import {
+  parseLoginIdentifier,
+  suggestUsernameBase,
+  validateEmail,
+  validatePassword,
+  validateUsername,
+} from '../shared/authValidation.js';
+import {
   createDefaultEloProfile,
   getEloTier,
   getNextEloTier,
@@ -79,6 +86,25 @@ const TOURNAMENT_CLEANUP_STALE_MS = 12 * 60 * 60 * 1000;
 const AUTH_SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 
 let tournamentsTableReady: Promise<void> | null = null;
+let authEmailIndexReady: Promise<void> | null = null;
+
+async function ensureAuthEmailIndex(): Promise<void> {
+  if (!authEmailIndexReady) {
+    authEmailIndexReady = (async () => {
+      const pool = getPool();
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT');
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_users_email_lower
+          ON users (LOWER(email))
+          WHERE email IS NOT NULL AND email <> ''
+      `);
+    })().catch((err) => {
+      authEmailIndexReady = null;
+      throw err;
+    });
+  }
+  return authEmailIndexReady;
+}
 
 async function ensureTournamentsTable(): Promise<void> {
   if (!tournamentsTableReady) {
@@ -251,23 +277,6 @@ async function verifyFirebaseIdToken(
   };
 }
 
-/** Transforme un nom ou une adresse en base de pseudo valide. */
-function suggestUsernameBase(
-  name: string | null,
-  email: string | null,
-): string {
-  const source =
-    (name && name.trim()) || (email ? email.split('@')[0] : '') || 'Joueur';
-  const cleaned = source
-    .replace(/[._]+/g, ' ')
-    .replace(/[^\p{L}\p{N} -]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 16)
-    .trim();
-  return cleaned.length >= 3 ? cleaned : 'Joueur';
-}
-
 async function findAvailableUsername(
   client: Pick<PgClientLike, 'query'>,
   base: string,
@@ -322,35 +331,6 @@ function verifyPassword(
   const actual = Buffer.from(hashPassword(password, salt), 'hex');
   const expected = Buffer.from(expectedHash, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-function validateUsername(
-  raw: string,
-): { ok: true; username: string; usernameLower: string } | { ok: false; error: string } {
-  const cleaned = raw.replace(/\s+/g, ' ').trim();
-  if (cleaned.length < 3) {
-    return {
-      ok: false,
-      error: 'Le pseudo doit contenir au moins 3 caractères.',
-    };
-  }
-  if (cleaned.length > 20) {
-    return {
-      ok: false,
-      error: 'Le pseudo est limité à 20 caractères.',
-    };
-  }
-  if (!/^[\p{L}\p{N}_ -]{3,20}$/u.test(cleaned)) {
-    return {
-      ok: false,
-      error: 'Utilisez uniquement des lettres, chiffres, espaces, tirets ou _.',
-    };
-  }
-  return {
-    ok: true,
-    username: cleaned,
-    usernameLower: cleaned.toLowerCase(),
-  };
 }
 
 /** Nom affiché en partie : mêmes caractères qu'un pseudo, sans unicité. Vide = aucun. */
@@ -472,7 +452,7 @@ async function resolveAuthUser(
   const token = extractBearerToken(req);
   if (!token) return null;
   const res = await queryable.query(
-    `SELECT u.id, u.username, u.game_name, u.created_at, u.auth_provider, u.avatar_url,
+    `SELECT u.id, u.username, u.game_name, u.email, u.created_at, u.auth_provider, u.avatar_url,
             u.streak_current, u.streak_best, u.streak_last_date,
             u.streak_total_days, u.streak_recent_dates
      FROM auth_sessions s
@@ -490,6 +470,7 @@ function rowToAuthUser(row: Record<string, unknown>, now = Date.now()): AuthUser
     id: String(row.id),
     username: String(row.username),
     gameName: row.game_name ? String(row.game_name) : null,
+    email: row.email ? String(row.email) : null,
     createdAt: Number(row.created_at),
     provider: (['password', 'google', 'apple', 'microsoft', 'email'].includes(provider)
       ? provider
@@ -932,6 +913,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
 
     // POST /api/game/auth/oauth — Google / Apple / Microsoft / lien e-mail via Firebase
     if (method === 'POST' && subPath === '/auth/oauth') {
+      await ensureAuthEmailIndex();
       const body = await readJsonBody<{
         idToken?: string;
         guestProfileId?: string;
@@ -966,15 +948,40 @@ export async function handleGameRequest(req: Request): Promise<Response> {
       }
 
       const providerUid = `firebase:${identity.uid}`;
+      const normalizedEmail = identity.email
+        ? identity.email.trim().toLowerCase()
+        : null;
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM auth_sessions WHERE expires_at < $1', [now]);
-        const found = await client.query(
-          `SELECT id, username, game_name, created_at, auth_provider, avatar_url,
+        let found = await client.query(
+          `SELECT id, username, game_name, email, created_at, auth_provider, avatar_url,
                   streak_current, streak_best, streak_last_date,
                   streak_total_days, streak_recent_dates
            FROM users WHERE provider_uid = $1`,
           [providerUid],
         );
+
+        // Liaison automatique si un compte existe déjà avec la même adresse e-mail vérifiée
+        if (found.rows.length === 0 && normalizedEmail && identity.emailVerified) {
+          const byEmail = await client.query(
+            `SELECT id, username, game_name, email, created_at, auth_provider, avatar_url,
+                    streak_current, streak_best, streak_last_date,
+                    streak_total_days, streak_recent_dates
+             FROM users WHERE LOWER(email) = $1 LIMIT 1`,
+            [normalizedEmail],
+          );
+          if (byEmail.rows.length > 0) {
+            const linkedId = String(byEmail.rows[0].id);
+            await client.query(
+              `UPDATE users
+               SET provider_uid = COALESCE(provider_uid, $1),
+                   avatar_url = COALESCE($2, avatar_url)
+               WHERE id = $3`,
+              [providerUid, identity.picture, linkedId],
+            );
+            found = byEmail;
+          }
+        }
 
         if (found.rows.length > 0) {
           const user = rowToAuthUser(found.rows[0], now);
@@ -985,6 +992,13 @@ export async function handleGameRequest(req: Request): Promise<Response> {
             ]);
             user.avatarUrl = identity.picture;
           }
+          if (normalizedEmail && !user.email) {
+            await client.query('UPDATE users SET email = $1 WHERE id = $2', [
+              normalizedEmail,
+              user.id,
+            ]);
+            user.email = normalizedEmail;
+          }
           const token = await createAuthSession(client, user.id, now);
           const profile = await loadEloProfile(client, `user:${user.id}`);
           return { token, user, profile, isNew: false, mergedGuest: false };
@@ -993,7 +1007,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
         const userId = randomUUID();
         const username = await findAvailableUsername(
           client,
-          suggestUsernameBase(identity.name, identity.email),
+          suggestUsernameBase(identity.name, normalizedEmail),
         );
         await client.query(
           `INSERT INTO users
@@ -1007,7 +1021,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
             now,
             identity.provider,
             providerUid,
-            identity.email,
+            normalizedEmail,
             identity.picture,
           ],
         );
@@ -1028,6 +1042,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
         const user: AuthUser = {
           id: userId,
           username,
+          email: normalizedEmail,
           createdAt: now,
           provider: identity.provider,
           avatarUrl: identity.picture,
@@ -1111,50 +1126,104 @@ export async function handleGameRequest(req: Request): Promise<Response> {
       });
     }
 
-    // POST /api/game/auth/register
+    // POST /api/game/auth/register — e-mail + mot de passe (pseudo optionnel) ou pseudo + mot de passe
     if (method === 'POST' && subPath === '/auth/register') {
+      await ensureAuthEmailIndex();
       const body = await readJsonBody<{
+        email?: string;
         username?: string;
         password?: string;
         guestProfileId?: string;
         guestPseudo?: string;
       }>(req);
-      const validUser = validateUsername(body?.username ?? '');
-      if (!validUser.ok) {
-        return jsonResponse({ ok: false, error: validUser.error }, 400);
+
+      const rawEmail = (body?.email ?? '').trim();
+      const rawUsername = (body?.username ?? '').trim();
+
+      let normalizedEmail: string | null = null;
+      if (rawEmail.length > 0) {
+        const validEmail = validateEmail(rawEmail);
+        if (!validEmail.ok) {
+          return jsonResponse({ ok: false, error: validEmail.error }, 400);
+        }
+        normalizedEmail = validEmail.email;
       }
-      const password = body?.password ?? '';
-      if (password.length < 6) {
-        return jsonResponse(
-          { ok: false, error: 'Le mot de passe doit contenir au moins 6 caractères.' },
-          400,
-        );
+
+      let explicitUser: { username: string; usernameLower: string } | null = null;
+      if (rawUsername.length > 0 || !normalizedEmail) {
+        const validUser = validateUsername(rawUsername);
+        if (!validUser.ok) {
+          return jsonResponse({ ok: false, error: validUser.error }, 400);
+        }
+        explicitUser = {
+          username: validUser.username,
+          usernameLower: validUser.usernameLower,
+        };
       }
-      if (password.length > 100) {
-        return jsonResponse({ ok: false, error: 'Mot de passe trop long.' }, 400);
+
+      const validPassword = validatePassword(body?.password ?? '');
+      if (!validPassword.ok) {
+        return jsonResponse({ ok: false, error: validPassword.error }, 400);
       }
 
       const result = await withTx(async (client) => {
-        const exists = await client.query(
-          'SELECT id FROM users WHERE username_lower = $1',
-          [validUser.usernameLower],
-        );
-        if (exists.rows.length > 0) {
-          return {
-            ok: false as const,
-            status: 409,
-            error: 'Ce pseudo est déjà utilisé.',
-          };
+        if (normalizedEmail) {
+          const emailExists = await client.query(
+            'SELECT id FROM users WHERE LOWER(email) = $1',
+            [normalizedEmail],
+          );
+          if (emailExists.rows.length > 0) {
+            return {
+              ok: false as const,
+              status: 409,
+              error: 'Cette adresse e-mail est déjà utilisée.',
+            };
+          }
+        }
+
+        let finalUsername: string;
+        let finalUsernameLower: string;
+        if (explicitUser) {
+          const exists = await client.query(
+            'SELECT id FROM users WHERE username_lower = $1',
+            [explicitUser.usernameLower],
+          );
+          if (exists.rows.length > 0) {
+            return {
+              ok: false as const,
+              status: 409,
+              error: 'Ce pseudo est déjà utilisé.',
+            };
+          }
+          finalUsername = explicitUser.username;
+          finalUsernameLower = explicitUser.usernameLower;
+        } else {
+          finalUsername = await findAvailableUsername(
+            client,
+            suggestUsernameBase(null, normalizedEmail),
+          );
+          finalUsernameLower = finalUsername.toLowerCase();
         }
 
         const userId = randomUUID();
         const salt = randomBytes(16).toString('hex');
-        const passwordHash = hashPassword(password, salt);
+        const passwordHash = hashPassword(validPassword.password, salt);
+        const authProvider: AuthProvider = normalizedEmail ? 'email' : 'password';
 
         await client.query(
-          `INSERT INTO users (id, username, username_lower, password_hash, salt, created_at, auth_provider)
-           VALUES ($1, $2, $3, $4, $5, $6, 'password')`,
-          [userId, validUser.username, validUser.usernameLower, passwordHash, salt, now],
+          `INSERT INTO users
+             (id, username, username_lower, email, password_hash, salt, created_at, auth_provider)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            userId,
+            finalUsername,
+            finalUsernameLower,
+            normalizedEmail,
+            passwordHash,
+            salt,
+            now,
+            authProvider,
+          ],
         );
         const token = await createAuthSession(client, userId, now);
 
@@ -1164,19 +1233,20 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           body?.guestProfileId,
           body?.guestPseudo,
           userKey,
-          validUser.username,
+          finalUsername,
           now,
         );
         const profile = merged ?? createDefaultEloProfile();
         if (!merged) {
-          await saveEloProfile(client, userKey, validUser.username, profile, now);
+          await saveEloProfile(client, userKey, finalUsername, profile, now);
         }
 
         const user: AuthUser = {
           id: userId,
-          username: validUser.username,
+          username: finalUsername,
+          email: normalizedEmail,
           createdAt: now,
-          provider: 'password',
+          provider: authProvider,
           avatarUrl: null,
           streak: presentAccountStreak(createEmptyStreakState(), now),
         };
@@ -1186,6 +1256,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           token,
           user,
           profile,
+          isNew: !explicitUser,
           mergedGuest: Boolean(merged),
           tier: getEloTier(profile.rating).label,
         };
@@ -1201,34 +1272,58 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           user: result.user,
           profile: presentProfile(result.profile, now),
           tier: result.tier,
+          isNew: result.isNew,
           mergedGuest: result.mergedGuest,
         },
       });
     }
 
-    // POST /api/game/auth/login
+    // POST /api/game/auth/login — connexion par e-mail OU par pseudo + mot de passe
     if (method === 'POST' && subPath === '/auth/login') {
-      const body = await readJsonBody<{ username?: string; password?: string }>(req);
-      const cleanName = (body?.username ?? '').replace(/\s+/g, ' ').trim();
+      await ensureAuthEmailIndex();
+      const body = await readJsonBody<{
+        identifier?: string;
+        email?: string;
+        username?: string;
+        password?: string;
+      }>(req);
+      const parsedId = parseLoginIdentifier(
+        body?.identifier ?? body?.email ?? body?.username ?? '',
+      );
       const password = body?.password ?? '';
-      if (!cleanName || !password) {
+      if (!parsedId || !password) {
         return jsonResponse(
-          { ok: false, error: 'Pseudo et mot de passe requis.' },
+          { ok: false, error: 'Identifiant et mot de passe requis.' },
           400,
         );
       }
 
-      const foundRes = await getPool().query(
-        `SELECT id, username, game_name, password_hash, salt, created_at, auth_provider, avatar_url,
-                streak_current, streak_best, streak_last_date,
-                streak_total_days, streak_recent_dates
-         FROM users
-         WHERE username_lower = $1`,
-        [cleanName.toLowerCase()],
-      );
+      const foundRes =
+        parsedId.kind === 'email'
+          ? await getPool().query(
+              `SELECT id, username, game_name, email, password_hash, salt, created_at,
+                      auth_provider, avatar_url,
+                      streak_current, streak_best, streak_last_date,
+                      streak_total_days, streak_recent_dates
+               FROM users
+               WHERE LOWER(email) = $1
+               LIMIT 1`,
+              [parsedId.value],
+            )
+          : await getPool().query(
+              `SELECT id, username, game_name, email, password_hash, salt, created_at,
+                      auth_provider, avatar_url,
+                      streak_current, streak_best, streak_last_date,
+                      streak_total_days, streak_recent_dates
+               FROM users
+               WHERE username_lower = $1
+               LIMIT 1`,
+              [parsedId.value],
+            );
+
       if (foundRes.rows.length === 0) {
         return jsonResponse(
-          { ok: false, error: 'Pseudo ou mot de passe incorrect.' },
+          { ok: false, error: 'E-mail, pseudo ou mot de passe incorrect.' },
           401,
         );
       }
@@ -1257,7 +1352,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
       );
       if (!validPwd) {
         return jsonResponse(
-          { ok: false, error: 'Pseudo ou mot de passe incorrect.' },
+          { ok: false, error: 'E-mail, pseudo ou mot de passe incorrect.' },
           401,
         );
       }
