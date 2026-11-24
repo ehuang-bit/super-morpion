@@ -93,7 +93,7 @@ function Side({
           </span>
           <span className="flex items-center gap-2 font-mono text-sm sm:text-base font-semibold tabular-nums">
             <span>
-              {player ? `${player.elo}${player.provisional ? '?' : ''}` : ''}
+              {player ? `${player.elo}` : ''}
             </span>
             {player && <span className="font-sans font-medium opacity-85">· {player.tier}</span>}
           </span>

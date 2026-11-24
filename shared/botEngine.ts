@@ -41,7 +41,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 1,
     label: 'Novice',
-    elo: 850,
+    elo: 300,
     style: 'Coups simples, découvre les renvois',
     maxDepth: 1,
     nodeBudget: 120,
@@ -54,7 +54,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 2,
     label: 'Apprenti',
-    elo: 1000,
+    elo: 500,
     style: 'Voit les alignements évidents',
     maxDepth: 1,
     nodeBudget: 250,
@@ -67,7 +67,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 3,
     label: 'Initié',
-    elo: 1120,
+    elo: 680,
     style: 'Bloque les menaces directes',
     maxDepth: 2,
     nodeBudget: 700,
@@ -80,7 +80,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 4,
     label: 'Tacticien',
-    elo: 1240,
+    elo: 850,
     style: 'Évite les coups libres offerts',
     maxDepth: 2,
     nodeBudget: 1600,
@@ -93,7 +93,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 5,
     label: 'Confirmé',
-    elo: 1360,
+    elo: 1020,
     style: 'Anticipe les captures locales',
     maxDepth: 3,
     nodeBudget: 3200,
@@ -106,7 +106,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 6,
     label: 'Stratège',
-    elo: 1480,
+    elo: 1200,
     style: 'Contrôle le centre et les renvois',
     maxDepth: 3,
     nodeBudget: 6200,
@@ -119,7 +119,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 7,
     label: 'Expert',
-    elo: 1620,
+    elo: 1400,
     style: 'Calcule les pièges sur 3 à 4 coups',
     maxDepth: 4,
     nodeBudget: 11000,
@@ -132,7 +132,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 8,
     label: 'Maître',
-    elo: 1780,
+    elo: 1600,
     style: 'Domine la grille globale',
     maxDepth: 4,
     nodeBudget: 18500,
@@ -145,7 +145,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 9,
     label: 'Grand Maître',
-    elo: 1940,
+    elo: 1800,
     style: 'Recherche profonde en finale',
     maxDepth: 5,
     nodeBudget: 30000,
@@ -158,7 +158,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
   {
     level: 10,
     label: 'Souverain',
-    elo: 2100,
+    elo: 2000,
     style: 'Calcul maximal, zéro concession',
     maxDepth: 6,
     nodeBudget: 48000,
@@ -171,7 +171,7 @@ export const BOT_LEVELS: readonly BotLevelProfile[] = [
 ];
 
 export function clampBotLevel(level: number): number {
-  if (!Number.isFinite(level)) return 4;
+  if (!Number.isFinite(level)) return 1;
   return Math.max(BOT_MIN_LEVEL, Math.min(BOT_MAX_LEVEL, Math.round(level)));
 }
 

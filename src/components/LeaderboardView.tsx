@@ -186,7 +186,6 @@ export function LeaderboardView({
                       durationMs={600}
                       delayMs={80 + Math.min(index, 12) * 30}
                     />
-                    {entry.provisional ? '?' : ''}
                   </span>
                 </motion.li>
               );

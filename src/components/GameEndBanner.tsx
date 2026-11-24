@@ -72,7 +72,6 @@ function RatingLine({
       : result.delta < 0
         ? 'var(--danger-color)'
         : 'var(--text-secondary)';
-  const suffix = result.provisional ? '?' : '';
 
   return (
     <div
@@ -92,14 +91,8 @@ function RatingLine({
         <span
           className={emphasize ? 'text-base font-bold' : 'text-xs font-semibold'}
           style={{ color: 'var(--text-primary)' }}
-          title={
-            result.provisional
-              ? 'Classement provisoire : il se stabilise au fil des parties'
-              : undefined
-          }
         >
           {shown}
-          {suffix}
         </span>
         {result.rated !== false && (
           <motion.span

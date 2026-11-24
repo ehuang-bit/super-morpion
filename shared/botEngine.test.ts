@@ -26,32 +26,32 @@ function seededRng(seed: number): () => number {
 
 describe('botEngine — calibration & évolution adaptative', () => {
   it('calibre le niveau initial du bot selon le classement Elo du joueur', () => {
-    expect(calibrateBotLevelFromElo(820)).toBe(1);
-    expect(calibrateBotLevelFromElo(1000)).toBe(2);
-    expect(calibrateBotLevelFromElo(1200)).toBe(4);
-    expect(calibrateBotLevelFromElo(1500)).toBe(6);
-    expect(calibrateBotLevelFromElo(1800)).toBe(8);
-    expect(calibrateBotLevelFromElo(2150)).toBe(10);
+    expect(calibrateBotLevelFromElo(300)).toBe(1);
+    expect(calibrateBotLevelFromElo(500)).toBe(2);
+    expect(calibrateBotLevelFromElo(850)).toBe(4);
+    expect(calibrateBotLevelFromElo(1200)).toBe(6);
+    expect(calibrateBotLevelFromElo(1600)).toBe(8);
+    expect(calibrateBotLevelFromElo(2050)).toBe(10);
   });
 
   it('fait évoluer le bot au palier supérieur à chaque victoire du joueur', () => {
-    const start = createInitialBotProgress(1200);
-    expect(start.level).toBe(4);
+    const start = createInitialBotProgress(300);
+    expect(start.level).toBe(1);
     expect(start.highestDefeatedLevel).toBeNull();
 
     const win1 = evolveBotProgress(start, 'win');
     expect(win1.evolved).toBe(true);
-    expect(win1.previousLevel).toBe(4);
-    expect(win1.next.level).toBe(5);
-    expect(win1.next.peakLevel).toBe(5);
-    expect(win1.next.highestDefeatedLevel).toBe(4);
+    expect(win1.previousLevel).toBe(1);
+    expect(win1.next.level).toBe(2);
+    expect(win1.next.peakLevel).toBe(2);
+    expect(win1.next.highestDefeatedLevel).toBe(1);
     expect(win1.next.wins).toBe(1);
     expect(win1.next.winStreak).toBe(1);
     expect(win1.masteredMaxLevel).toBe(false);
 
     const win2 = evolveBotProgress(win1.next, 'win');
     expect(win2.evolved).toBe(true);
-    expect(win2.next.level).toBe(6);
+    expect(win2.next.level).toBe(3);
     expect(win2.next.winStreak).toBe(2);
   });
 

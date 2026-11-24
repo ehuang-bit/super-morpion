@@ -345,9 +345,6 @@ export function StatsView({
                   from={Math.max(0, profile.rating - 90)}
                   durationMs={900}
                 />
-                {provisional && (
-                  <span style={{ color: 'var(--text-muted)' }}>?</span>
-                )}
               </span>
               <span
                 className="font-mono text-xs font-semibold tabular-nums"

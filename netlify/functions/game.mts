@@ -1896,7 +1896,7 @@ export default async (req: Request): Promise<Response> => {
              AND q.player_id <> $2
              AND q.profile_key <> $3
              AND q.last_seen_at >= $4
-           ORDER BY ABS(COALESCE(e.rating, 1200) - $5) ASC, q.joined_at ASC
+           ORDER BY ABS(COALESCE(e.rating, 300) - $5) ASC, q.joined_at ASC
            LIMIT 1
            FOR UPDATE OF q SKIP LOCKED`,
           [timeControl, body.playerId, profileKey, now - QUEUE_STALE_MS, selfProfile.rating],

@@ -15,7 +15,7 @@
  * plus que battre un joueur dont le classement est encore provisoire.
  */
 
-export const INITIAL_ELO = 1200;
+export const INITIAL_ELO = 300;
 export const MIN_ELO = 100;
 export const INITIAL_RD = 350;
 export const MIN_RD = 45;
@@ -24,7 +24,7 @@ export const INITIAL_VOLATILITY = 0.06;
 export const MAX_VOLATILITY = 0.1;
 /** Contrainte d'évolution de la volatilité (Lichess utilise 0.75). */
 export const GLICKO_TAU = 0.75;
-/** Au-delà de cette déviation, le classement est affiché comme provisoire (« 1350? »). */
+/** Au-delà de cette déviation, le classement est considéré comme provisoire. */
 export const PROVISIONAL_RD = 110;
 /** Durée d'une « période » d'inactivité pour la remontée de la déviation. */
 export const RATING_PERIOD_MS = 24 * 60 * 60 * 1000;
@@ -105,11 +105,11 @@ export interface RatingUpdateResult {
 
 export const ELO_TIERS: readonly EloTier[] = [
   { id: 'souverain', label: 'Souverain', min: 2000 },
-  { id: 'grand_maitre', label: 'Grand Maître', min: 1800 },
-  { id: 'maitre', label: 'Maître', min: 1600 },
-  { id: 'stratege', label: 'Stratège', min: 1400 },
-  { id: 'tacticien', label: 'Tacticien', min: 1200 },
-  { id: 'apprenti', label: 'Apprenti', min: 1000 },
+  { id: 'grand_maitre', label: 'Grand Maître', min: 1700 },
+  { id: 'maitre', label: 'Maître', min: 1400 },
+  { id: 'stratege', label: 'Stratège', min: 1100 },
+  { id: 'tacticien', label: 'Tacticien', min: 800 },
+  { id: 'apprenti', label: 'Apprenti', min: 500 },
   { id: 'novice', label: 'Novice', min: 0 },
 ];
 
@@ -140,10 +140,9 @@ export function isProvisional(rd: number | undefined | null): boolean {
   return finiteOr(rd, INITIAL_RD) > PROVISIONAL_RD;
 }
 
-/** « 1350 » ou « 1350? » si le classement est encore provisoire. */
-export function formatRating(rating: number, rd?: number | null): string {
-  const rounded = Math.round(rating);
-  return isProvisional(rd) ? `${rounded}?` : `${rounded}`;
+/** Formate le classement arrondi à l'entier (sans point d'interrogation). */
+export function formatRating(rating: number, _rd?: number | null): string {
+  return `${Math.round(rating)}`;
 }
 
 /**

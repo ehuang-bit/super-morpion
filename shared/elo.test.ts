@@ -38,13 +38,14 @@ describe('Glicko-2', () => {
     expect(next.volatility).toBeCloseTo(0.05999, 4);
   });
 
-  it('crée un profil provisoire à 1200 (Tacticien)', () => {
+  it('crée un profil initial à 300 (Novice) sans point d’interrogation à l’affichage', () => {
     const profile = createDefaultEloProfile();
     expect(profile.rating).toBe(INITIAL_ELO);
+    expect(profile.rating).toBe(300);
     expect(profile.rd).toBe(INITIAL_RD);
     expect(isProvisional(profile.rd)).toBe(true);
-    expect(formatRating(profile.rating, profile.rd)).toBe('1200?');
-    expect(getEloTier(profile.rating).label).toBe('Tacticien');
+    expect(formatRating(profile.rating, profile.rd)).toBe('300');
+    expect(getEloTier(profile.rating).label).toBe('Novice');
   });
 
   it('fait beaucoup bouger un nouveau joueur, puis se stabilise', () => {
@@ -161,15 +162,15 @@ describe('Glicko-2', () => {
   });
 
   it('gère les paliers', () => {
-    expect(getEloTier(950).label).toBe('Novice');
-    expect(getEloTier(1050).label).toBe('Apprenti');
-    expect(getEloTier(1250).label).toBe('Tacticien');
-    expect(getEloTier(1450).label).toBe('Stratège');
-    expect(getEloTier(1650).label).toBe('Maître');
-    expect(getEloTier(1850).label).toBe('Grand Maître');
+    expect(getEloTier(300).label).toBe('Novice');
+    expect(getEloTier(550).label).toBe('Apprenti');
+    expect(getEloTier(850).label).toBe('Tacticien');
+    expect(getEloTier(1150).label).toBe('Stratège');
+    expect(getEloTier(1450).label).toBe('Maître');
+    expect(getEloTier(1750).label).toBe('Grand Maître');
     expect(getEloTier(2050).label).toBe('Souverain');
-    expect(getNextEloTier(1199)).toMatchObject({ label: 'Tacticien', min: 1200 });
-    expect(getNextEloTier(1850)).toMatchObject({ label: 'Souverain', min: 2000 });
+    expect(getNextEloTier(300)).toMatchObject({ label: 'Apprenti', min: 500 });
+    expect(getNextEloTier(1750)).toMatchObject({ label: 'Souverain', min: 2000 });
     expect(getNextEloTier(2000)).toBeNull();
   });
 

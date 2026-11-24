@@ -234,15 +234,15 @@ describe('onlineRoomLogic', () => {
 
     const withElo = applyEloOutcomeToRoom(resigned.room, profX, profO, t0 + 2000);
     expect(withElo.rated).toBe(true);
-    // Deux joueurs provisoires : grosse variation symétrique (Glicko-2)
-    const gain = withElo.nextProfileX.rating - 1200;
+    // Deux joueurs provisoires à 300 : grosse variation symétrique (Glicko-2)
+    const gain = withElo.nextProfileX.rating - 300;
     expect(gain).toBeGreaterThan(100);
-    expect(withElo.nextProfileO.rating).toBe(1200 - gain);
+    expect(withElo.nextProfileO.rating).toBe(Math.max(100, 300 - gain));
     expect(withElo.nextProfileX.rd).toBeLessThan(350);
     expect(withElo.nextProfileX.lastPlayedAt).toBe(t0 + 2000);
     expect(withElo.room.eloResult?.X).toMatchObject({
-      before: 1200,
-      after: 1200 + gain,
+      before: 300,
+      after: 300 + gain,
       delta: gain,
       rated: true,
       provisional: true,
@@ -264,9 +264,9 @@ describe('onlineRoomLogic', () => {
     if (!v2.ok) return;
 
     expect(v2.room.players.X?.id).toBe('p2');
-    expect(v2.room.players.X?.elo).toBe(1200 - gain);
+    expect(v2.room.players.X?.elo).toBe(Math.max(100, 300 - gain));
     expect(v2.room.players.O?.id).toBe('p1');
-    expect(v2.room.players.O?.elo).toBe(1200 + gain);
+    expect(v2.room.players.O?.elo).toBe(300 + gain);
     expect(v2.room.eloResult).toBeNull();
 
     // Quitter avant d'avoir joué : annulation

@@ -102,7 +102,6 @@ function RatingLine({
         style={{ fontSize: large ? 'clamp(30px, 7vmin, 60px)' : 'clamp(22px, 5vmin, 38px)' }}
       >
         {shown}
-        {result.provisional ? '?' : ''}
       </span>
       <motion.span
         className="rounded-full px-3 py-1 font-bold"

@@ -204,14 +204,9 @@ export function PlayerCard({
                     backgroundColor: 'var(--bg-recessed)',
                     color: 'var(--text-primary)',
                   }}
-                  title={
-                    player.provisional
-                      ? `Classement provisoire : ${player.elo} ±${player.rd} (${player.tier})`
-                      : `Classement : ${player.elo} ±${player.rd} (${player.tier})`
-                  }
+                  title={`Classement : ${player.elo} (${player.tier})`}
                 >
                   {player.elo}
-                  {player.provisional ? '?' : ''}
                 </span>
               )}
               {isSelf && (
