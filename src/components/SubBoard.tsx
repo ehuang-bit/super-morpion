@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   BOARD_COORDS,
-  type DestinationPreview,
   type Move,
   type Player,
   type SubBoardState,
@@ -10,9 +9,7 @@ import {
 import type { BoardPreferences } from '../types/boardPrefs';
 import {
   CAPTURE_SPRING,
-  FOCUS_SPRING,
   PLACE_SPRING,
-  PROJECTOR_SPRING,
   SMOOTH_EASE,
   STAMP_SPRING,
 } from '../utils/motion';
@@ -31,12 +28,12 @@ interface SubBoardProps {
   hoveredCell: number | null;
   /** Case conseillée à mettre en évidence (tutoriel). */
   hintCell?: number | null;
-  destinationPreview: DestinationPreview | null;
   animateCells: Set<string>;
   animateCapture: boolean;
   boardPrefs: BoardPreferences;
   onPlayMove: (move: Move) => void;
-  onHoverMove: (move: Move | null) => void;
+  onHoverEnter: (move: Move) => void;
+  onHoverLeave: (move: Move) => void;
 }
 
 function getLocalWinCoords(winLine: WinLine) {
@@ -65,12 +62,12 @@ export function SubBoard({
   lastMoveCell,
   hoveredCell,
   hintCell = null,
-  destinationPreview,
   animateCells,
   animateCapture,
   boardPrefs,
   onPlayMove,
-  onHoverMove,
+  onHoverEnter,
+  onHoverLeave,
 }: SubBoardProps) {
   const isLocked = subBoard.status !== 'active';
   const isPlayableBoard =
@@ -78,11 +75,6 @@ export function SubBoard({
   const isFocusedBoard =
     !isGameOver && !isLocked && (isActiveTarget || isAnyBoardOpen);
   const isDimmed = !isGameOver && !isLocked && !isFocusedBoard;
-
-  const isDestinationTarget =
-    boardPrefs.showProjector &&
-    destinationPreview !== null &&
-    destinationPreview.targetBoard === boardIndex;
 
   const isStrict = boardPrefs.boardShape === 'strict';
   const subRadius = isStrict ? 'rounded-[4px]' : 'rounded-[10px]';
@@ -147,19 +139,6 @@ export function SubBoard({
         </span>
       )}
 
-      {/* Active sub-board spring-gliding focus ring */}
-      {!isGameOver && isActiveTarget && !isFreeMovePhase && !isLocked && (
-        <motion.div
-          layoutId="active-subboard-frame"
-          transition={FOCUS_SPRING}
-          className={`pointer-events-none absolute -inset-[2px] z-20 ${ringRadius}`}
-          style={{
-            border: '2.5px solid var(--accent-active)',
-            boxShadow: 'var(--shadow-active)',
-          }}
-        />
-      )}
-
       {/* Free move cue on every active sub-board */}
       {!isGameOver && isFreeMovePhase && !isLocked && (
         <motion.div
@@ -172,46 +151,6 @@ export function SubBoard({
             backgroundColor: 'var(--accent-active-bg)',
           }}
         />
-      )}
-
-      {/* Gliding Hover Destination Projector */}
-      {isDestinationTarget && destinationPreview && (
-        <motion.div
-          layoutId="destination-projector"
-          transition={PROJECTOR_SPRING}
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`pointer-events-none absolute -inset-[2px] z-30 ${ringRadius} flex items-start justify-end p-1`}
-          style={{
-            border: destinationPreview.willBeFreeMove
-              ? '2px dashed var(--danger-color)'
-              : '2px dashed var(--accent-active)',
-            backgroundColor: destinationPreview.willBeFreeMove
-              ? 'var(--danger-bg)'
-              : 'var(--accent-active-bg)',
-          }}
-        >
-          <span
-            className="rounded px-1 py-0.5 font-mono text-[9px] font-medium leading-none shadow-sm"
-            style={{
-              backgroundColor: 'var(--bg-board)',
-              color: destinationPreview.willBeFreeMove
-                ? 'var(--danger-color)'
-                : 'var(--accent-active-text)',
-              border: `1px solid ${
-                destinationPreview.willBeFreeMove
-                  ? 'var(--danger-color)'
-                  : 'var(--accent-active)'
-              }`,
-            }}
-          >
-            {destinationPreview.willBeFreeMove
-              ? 'Coup libre →'
-              : destinationPreview.isSelfRedirect
-                ? '↻ Même zone'
-                : `→ ${BOARD_COORDS[boardIndex]}`}
-          </span>
-        </motion.div>
       )}
 
       {/* 3x3 Cells Grid */}
@@ -239,17 +178,25 @@ export function SubBoard({
               data-cell-index={cellIndex}
               onClick={() => {
                 if (!isPlayableCell) return;
-                onHoverMove(null);
                 onPlayMove({ boardIndex, cellIndex });
               }}
               onPointerEnter={(e) => {
                 if (e.pointerType === 'mouse' && isPlayableCell) {
-                  onHoverMove({ boardIndex, cellIndex });
+                  onHoverEnter({ boardIndex, cellIndex });
                 }
               }}
-              onPointerLeave={() => {
-                if (hoveredCell === cellIndex) {
-                  onHoverMove(null);
+              onPointerMove={(e) => {
+                if (
+                  e.pointerType === 'mouse' &&
+                  isPlayableCell &&
+                  hoveredCell !== cellIndex
+                ) {
+                  onHoverEnter({ boardIndex, cellIndex });
+                }
+              }}
+              onPointerLeave={(e) => {
+                if (e.pointerType === 'mouse' && hoveredCell === cellIndex) {
+                  onHoverLeave({ boardIndex, cellIndex });
                 }
               }}
               className={`board-cell relative block w-full h-full min-h-0 min-w-0 overflow-hidden p-0 box-border ${cellRadius} ${

@@ -2,16 +2,16 @@ export const SMOOTH_EASE = [0.22, 1, 0.36, 1] as const;
 
 export const FOCUS_SPRING = {
   type: 'spring',
-  stiffness: 360,
-  damping: 32,
+  stiffness: 320,
+  damping: 30,
   mass: 0.85,
 } as const;
 
 export const PROJECTOR_SPRING = {
   type: 'spring',
-  stiffness: 450,
-  damping: 35,
-  mass: 0.72,
+  stiffness: 290,
+  damping: 29,
+  mass: 0.82,
 } as const;
 
 export const CAPTURE_SPRING = {
