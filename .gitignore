@@ -3,7 +3,11 @@ dist/
 dist-server/
 /data/
 .netlify/
+.vercel/
 .env
 .env.local
+.env.*.local
 .DS_Store
 .claude/
+.vercel
+.env*
