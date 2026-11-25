@@ -2,9 +2,12 @@
  * Connexion via Google, Apple, Microsoft ou lien magique par e-mail
  * (n'importe quelle adresse : Gmail, iCloud, Outlook…), grâce à Firebase Auth.
  *
- * Firebase ne sert qu'à prouver l'identité : on récupère un jeton signé par
- * Google, que le serveur vérifie avant d'ouvrir sa propre session de jeu.
- * La session Firebase est fermée aussitôt après.
+ * IMPORTANT : on précharge le SDK Firebase dès l'ouverture de la fenêtre de
+ * connexion (`preloadFirebaseAuth`) pour que `signInWithPopup` soit appelé de
+ * façon SYNCHRONE dans le geste utilisateur (clic) — sinon les navigateurs
+ * bloquent la pop-up (`auth/popup-blocked`) et une redirection cross-origin
+ * vers `*.firebaseapp.com` perd la session à cause du partitionnement des
+ * cookies tiers.
  */
 import type { Auth } from 'firebase/auth';
 import {
@@ -17,6 +20,8 @@ export type SocialProvider = 'google' | 'apple' | 'microsoft';
 export type SocialSignInResult =
   | { kind: 'token'; idToken: string }
   | { kind: 'redirecting' };
+
+type FirebaseAuthModule = typeof import('firebase/auth');
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || FIREBASE_PUBLIC_CONFIG.apiKey,
@@ -49,8 +54,11 @@ export const emailLinkEnabled =
 
 const EMAIL_FOR_LINK_KEY = 'sm_email_for_link';
 const SOCIAL_REDIRECT_KEY = 'sm_social_redirect_pending';
+const CANONICAL_HOST = 'super-morpion.vercel.app';
 
-let authPromise: Promise<Auth> | null = null;
+let authReadyPromise: Promise<{ auth: Auth; mod: FirebaseAuthModule }> | null = null;
+let cachedAuth: Auth | null = null;
+let cachedAuthMod: FirebaseAuthModule | null = null;
 
 function mapFirebaseLocale(locale?: string): string {
   if (!locale) return 'fr';
@@ -58,13 +66,19 @@ function mapFirebaseLocale(locale?: string): string {
   return locale;
 }
 
-async function getFirebaseAuth(locale?: string): Promise<Auth> {
+async function ensureFirebaseAuth(
+  locale?: string,
+): Promise<{ auth: Auth; mod: FirebaseAuthModule }> {
   if (!firebaseEnabled) {
     throw new Error('Connexion externe non configurée.');
   }
-  if (!authPromise) {
-    authPromise = (async () => {
-      const [{ initializeApp, getApps }, { getAuth }] = await Promise.all([
+  if (cachedAuth && cachedAuthMod) {
+    if (locale) cachedAuth.languageCode = mapFirebaseLocale(locale);
+    return { auth: cachedAuth, mod: cachedAuthMod };
+  }
+  if (!authReadyPromise) {
+    authReadyPromise = (async () => {
+      const [{ initializeApp, getApps }, mod] = await Promise.all([
         import('firebase/app'),
         import('firebase/auth'),
       ]);
@@ -76,16 +90,33 @@ async function getFirebaseAuth(locale?: string): Promise<Auth> {
           projectId: config.projectId,
           appId: config.appId,
         });
-      const auth = getAuth(app);
+      const auth = mod.getAuth(app);
       auth.languageCode = mapFirebaseLocale(locale);
-      return auth;
-    })();
+      cachedAuth = auth;
+      cachedAuthMod = mod;
+      return { auth, mod };
+    })().catch((err) => {
+      authReadyPromise = null;
+      throw err;
+    });
   }
-  const auth = await authPromise;
+  const bundle = await authReadyPromise;
   if (locale) {
-    auth.languageCode = mapFirebaseLocale(locale);
+    bundle.auth.languageCode = mapFirebaseLocale(locale);
   }
-  return auth;
+  return bundle;
+}
+
+/**
+ * Précharge Firebase Auth en arrière-plan (à l'ouverture du modal ou au survol
+ * du bouton Connexion) afin que le clic sur Google ouvre la pop-up de manière
+ * 100 % synchrone sans jamais déclencher le bloqueur de pop-up.
+ */
+export function preloadFirebaseAuth(locale?: string): void {
+  if (!firebaseEnabled || typeof window === 'undefined') return;
+  void ensureFirebaseAuth(locale).catch(() => {
+    // Erreur silencieuse au préchargement : gérée au moment du clic réel
+  });
 }
 
 function getFirebaseErrorCode(err: unknown): string {
@@ -97,15 +128,19 @@ function getFirebaseErrorCode(err: unknown): string {
 function friendlyFirebaseError(err: unknown): Error {
   const code = getFirebaseErrorCode(err);
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isVercelPreviewHost =
+    host.endsWith('.vercel.app') && host !== CANONICAL_HOST;
   const messages: Record<string, string> = {
     'auth/popup-closed-by-user': 'Connexion annulée.',
     'auth/cancelled-popup-request': 'Connexion annulée.',
     'auth/popup-blocked':
-      'La fenêtre de connexion a été bloquée. Autorisez les pop-ups pour ce site.',
+      'La fenêtre Google a été bloquée par le navigateur. Clique à nouveau sur « Continuer avec Google » ou autorise les pop-ups pour ce site.',
     'auth/network-request-failed': 'Réseau indisponible, réessayez.',
-    'auth/unauthorized-domain': host
-      ? `Le domaine « ${host} » doit être ajouté dans Firebase → Authentication → Domaines autorisés.`
-      : 'Ce domaine n’est pas autorisé dans la configuration Firebase.',
+    'auth/unauthorized-domain': isVercelPreviewHost
+      ? `Tu es sur un lien temporaire (${host}). Ouvre https://${CANONICAL_HOST} pour te connecter avec Google.`
+      : host
+        ? `Le domaine « ${host} » doit être ajouté dans Firebase → Authentication → Domaines autorisés.`
+        : 'Ce domaine n’est pas autorisé dans la configuration Firebase.',
     'auth/operation-not-allowed':
       'Ce mode de connexion n’est pas activé dans Firebase.',
     'auth/invalid-email': 'Adresse e-mail invalide.',
@@ -123,7 +158,7 @@ function friendlyFirebaseError(err: unknown): Error {
 }
 
 function buildAuthProvider(
-  mod: typeof import('firebase/auth'),
+  mod: FirebaseAuthModule,
   provider: SocialProvider,
   locale?: string,
 ) {
@@ -147,16 +182,27 @@ function buildAuthProvider(
 }
 
 /**
- * Ouvre la fenêtre du fournisseur et renvoie un jeton d'identité vérifiable.
- * Si la pop-up est bloquée (ex. navigateur mobile intégré), bascule automatiquement
- * sur une redirection OAuth sécurisée.
+ * Ouvre la fenêtre Google/OAuth et renvoie un jeton d'identité vérifiable.
+ * Si le SDK est déjà préchargé (cas normal dès l'ouverture de AuthModal),
+ * `signInWithPopup` est déclenché de façon synchrone dans le tour du clic.
  */
 export async function signInWithSocial(
   provider: SocialProvider,
   locale?: string,
 ): Promise<SocialSignInResult> {
-  const auth = await getFirebaseAuth(locale);
-  const mod = await import('firebase/auth');
+  let auth: Auth;
+  let mod: FirebaseAuthModule;
+
+  if (cachedAuth && cachedAuthMod) {
+    auth = cachedAuth;
+    mod = cachedAuthMod;
+    if (locale) auth.languageCode = mapFirebaseLocale(locale);
+  } else {
+    const bundle = await ensureFirebaseAuth(locale);
+    auth = bundle.auth;
+    mod = bundle.mod;
+  }
+
   const authProvider = buildAuthProvider(mod, provider, locale);
 
   try {
@@ -165,33 +211,11 @@ export async function signInWithSocial(
     void mod.signOut(auth);
     return { kind: 'token', idToken };
   } catch (err) {
-    const code = getFirebaseErrorCode(err);
-    if (
-      code === 'auth/popup-blocked' ||
-      code === 'auth/operation-not-supported-in-this-environment'
-    ) {
-      try {
-        sessionStorage.setItem(SOCIAL_REDIRECT_KEY, provider);
-      } catch {
-        // Ignorer si sessionStorage est indisponible
-      }
-      try {
-        await mod.signInWithRedirect(auth, authProvider);
-        return { kind: 'redirecting' };
-      } catch (redirectErr) {
-        try {
-          sessionStorage.removeItem(SOCIAL_REDIRECT_KEY);
-        } catch {
-          // Ignorer
-        }
-        throw friendlyFirebaseError(redirectErr);
-      }
-    }
     throw friendlyFirebaseError(err);
   }
 }
 
-/** Vérifie si un retour de redirection Google/OAuth est en attente. */
+/** Vérifie si un éventuel retour de redirection OAuth est en attente. */
 export function hasPendingSocialRedirect(): boolean {
   if (!firebaseEnabled || typeof window === 'undefined') return false;
   try {
@@ -201,7 +225,7 @@ export function hasPendingSocialRedirect(): boolean {
   }
 }
 
-/** Finalise une connexion OAuth par redirection si elle vient de se terminer. */
+/** Finalise une connexion OAuth par redirection si un indicateur existait. */
 export async function consumeSocialRedirectResult(): Promise<string | null> {
   if (!hasPendingSocialRedirect()) return null;
   try {
@@ -209,8 +233,7 @@ export async function consumeSocialRedirectResult(): Promise<string | null> {
   } catch {
     // Ignorer
   }
-  const auth = await getFirebaseAuth();
-  const mod = await import('firebase/auth');
+  const { auth, mod } = await ensureFirebaseAuth();
   try {
     const cred = await mod.getRedirectResult(auth);
     if (!cred?.user) return null;
@@ -224,8 +247,7 @@ export async function consumeSocialRedirectResult(): Promise<string | null> {
 
 /** Envoie un lien de connexion à usage unique par e-mail. */
 export async function sendMagicLink(email: string, locale?: string): Promise<void> {
-  const auth = await getFirebaseAuth(locale);
-  const mod = await import('firebase/auth');
+  const { auth, mod } = await ensureFirebaseAuth(locale);
   try {
     await mod.sendSignInLinkToEmail(auth, email, {
       url: `${window.location.origin}/?connexion=email`,
@@ -266,8 +288,7 @@ function cleanMagicLinkFromUrl(): void {
 
 /** Finalise la connexion par lien magique et renvoie le jeton d'identité. */
 export async function completeMagicLink(email: string): Promise<string> {
-  const auth = await getFirebaseAuth();
-  const mod = await import('firebase/auth');
+  const { auth, mod } = await ensureFirebaseAuth();
   const href = window.location.href;
   if (!mod.isSignInWithEmailLink(auth, href)) {
     throw new Error('Lien de connexion invalide.');

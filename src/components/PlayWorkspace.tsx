@@ -39,6 +39,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { preloadFirebaseAuth } from '../auth/firebase';
 import { getDailyPuzzle } from '../data/dailyPuzzles';
 import type { ConnectionStatus } from '../hooks/useOnlineGame';
 import { useI18n } from '../i18n';
@@ -733,6 +734,8 @@ export function PlayWorkspace({
                       </label>
                       <button
                         type="button"
+                        onMouseEnter={() => preloadFirebaseAuth()}
+                        onFocus={() => preloadFirebaseAuth()}
                         onClick={onOpenAuth}
                         className="tactile-btn inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
                         style={{

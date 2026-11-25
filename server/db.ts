@@ -16,6 +16,17 @@ function resolveConnectionString(): string {
       'Database connection string missing (set DATABASE_URL or POSTGRES_URL).',
     );
   }
+  // Évite l'avertissement stderr pg-connection-string sur sslmode=require tout en gardant verify-full
+  try {
+    const parsed = new URL(url);
+    const mode = parsed.searchParams.get('sslmode');
+    if (mode === 'require' || mode === 'prefer' || mode === 'verify-ca') {
+      parsed.searchParams.set('sslmode', 'verify-full');
+      return parsed.toString();
+    }
+  } catch {
+    // URL non standard : on renvoie la chaîne telle quelle
+  }
   return url;
 }
 

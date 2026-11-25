@@ -17,6 +17,7 @@ import {
   VolumeX,
   type LucideIcon,
 } from 'lucide-react';
+import { preloadFirebaseAuth } from '../auth/firebase';
 import { useI18n, type TranslationKey } from '../i18n';
 import { CHIP_SPRING } from '../utils/motion';
 import { BrandLogo } from './BrandLogo';
@@ -283,6 +284,8 @@ export function Sidebar({
                 ) : (
                   <button
                     type="button"
+                    onMouseEnter={() => preloadFirebaseAuth()}
+                    onFocus={() => preloadFirebaseAuth()}
                     onClick={onOpenAuth}
                     className="tactile-btn w-full rounded-lg px-3 py-2 text-xs font-semibold inline-flex items-center justify-center gap-1.5"
                     style={{
@@ -428,6 +431,8 @@ export function Sidebar({
           ) : (
             <button
               type="button"
+              onMouseEnter={() => preloadFirebaseAuth()}
+              onFocus={() => preloadFirebaseAuth()}
               onClick={onOpenAuth}
               className="tactile-btn inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
               style={{

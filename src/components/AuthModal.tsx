@@ -19,6 +19,7 @@ import {
 import {
   emailLinkEnabled,
   enabledSocialProviders,
+  preloadFirebaseAuth,
   type SocialProvider,
 } from '../auth/firebase';
 import type { AuthController } from '../hooks/useAuth';
@@ -153,7 +154,7 @@ export function AuthModal({
   onClose,
   onSignedIn,
 }: AuthModalProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [view, setView] = useState<View>('main');
   const [emailMethod, setEmailMethod] = useState<EmailMethod>('password');
   const [emailMode, setEmailMode] = useState<'register' | 'login'>('register');
@@ -184,11 +185,14 @@ export function AuthModal({
   }, [auth.onboarding, auth.magicLinkNeedsEmail, auth.magicLinkSentTo]);
 
   useEffect(() => {
+    if (open) {
+      preloadFirebaseAuth(locale);
+    }
     if (open && !auth.onboarding && !auth.magicLinkNeedsEmail && !auth.magicLinkSentTo) {
       setView('main');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, locale]);
 
   useEffect(() => {
     if (defaultPseudo) {

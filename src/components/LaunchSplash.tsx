@@ -10,27 +10,47 @@ interface LaunchSplashProps {
  * Chronologie, en secondes.
  * 1. Un petit morpion se trace et se joue : X aligne sa diagonale.
  * 2. La caméra recule : ce morpion n'était que la case centrale d'un plus grand.
- * 3. Les grandes cases se tamponnent, la grande diagonale se trace.
+ * 3. La grande grille se trace une fois le mini-plateau centré, puis les 4 grandes
+ *    cases se posent proprement AVANT que la grande diagonale verte ne les traverse.
  * 4. Le nom s'écrit, puis l'écran se referme en goutte d'encre sur le site.
  */
 const T = {
-  miniGrid: 0.1,
-  miniMoves: 0.42,
-  miniMoveGap: 0.13,
-  miniLine: 1.1,
-  zoomOut: 1.38,
-  bigGrid: 1.5,
-  bigMarks: 1.86,
-  bigMarkGap: 0.1,
-  bigLine: 2.3,
-  title: 1.95,
-  end: 3.15,
+  miniGrid: 0.08,
+  miniMoves: 0.36,
+  miniMoveGap: 0.11,
+  miniLine: 1.02,
+  zoomOut: 1.32,
+  bigGrid: 1.66,
+  bigMarks: 1.88,
+  bigMarkGap: 0.075,
+  bigLine: 2.48,
+  title: 2.02,
+  end: 3.35,
 } as const;
 const EXIT_SECONDS = 0.55;
 
 /** Petit morpion, dessiné autour de (0, 0) : 3 cases de 24 unités. */
 const MINI_CELL = 24;
 const MINI_HALF = 36;
+const MINI_GRID_LEN = MINI_HALF * 2;
+const MINI_LINE_REACH = 32;
+const MINI_DIAG_LEN = Math.hypot(MINI_LINE_REACH * 2, MINI_LINE_REACH * 2);
+
+/** Grand plateau : 3 cases de 100 unités, la case centrale porte le petit morpion. */
+const BIG_GRID_LEN = 284;
+const BIG_LINE_START = 22;
+const BIG_LINE_END = 278;
+const BIG_DIAG_LEN = Math.hypot(
+  BIG_LINE_END - BIG_LINE_START,
+  BIG_LINE_END - BIG_LINE_START,
+);
+
+/** Origine SVG explicite : évite tout décalage de scale/rotate sur Safari, Firefox et Chrome. */
+const CENTER_ORIGIN_STYLE = {
+  transformBox: 'view-box' as const,
+  transformOrigin: '0px 0px',
+};
+
 /** Coups du petit morpion, dans l'ordre joué (colonne, ligne). */
 const MINI_MOVES: readonly { symbol: 'X' | 'O'; col: number; row: number }[] = [
   { symbol: 'X', col: 1, row: 1 },
@@ -40,7 +60,7 @@ const MINI_MOVES: readonly { symbol: 'X' | 'O'; col: number; row: number }[] = [
   { symbol: 'X', col: 2, row: 2 },
 ];
 
-/** Grand plateau : 3 cases de 100 unités, la case centrale porte le petit morpion. */
+/** Grandes cases autour du mini-plateau central. */
 const BIG_MARKS: readonly { symbol: 'X' | 'O'; col: number; row: number }[] = [
   { symbol: 'X', col: 0, row: 0 },
   { symbol: 'O', col: 2, row: 0 },
@@ -66,10 +86,19 @@ function Mark({
       stroke="var(--x-color)"
       strokeWidth={stroke}
       strokeLinecap="round"
+      shapeRendering="geometricPrecision"
       fill="none"
     />
   ) : (
-    <circle r={r} stroke="var(--o-color)" strokeWidth={stroke} fill="none" />
+    <circle
+      cx={0}
+      cy={0}
+      r={r}
+      stroke="var(--o-color)"
+      strokeWidth={stroke}
+      shapeRendering="geometricPrecision"
+      fill="none"
+    />
   );
 }
 
@@ -104,6 +133,7 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
   return (
     <motion.div
       id="launch-splash"
+      dir="ltr"
       className="fixed inset-0 z-[120] flex cursor-pointer select-none flex-col items-center justify-center overflow-hidden"
       style={{ backgroundColor: 'var(--bg-canvas)' }}
       onPointerDown={() => setExiting(true)}
@@ -140,7 +170,7 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
             strokeWidth="1.5"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: T.bigGrid - 0.1, duration: 0.45 }}
+            transition={{ delay: T.bigGrid - 0.14, duration: 0.4 }}
           />
 
           {/* Grille du grand plateau */}
@@ -152,39 +182,37 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
               strokeWidth="3.5"
               strokeLinecap="round"
               fill="none"
-              pathLength={1}
-              strokeDasharray="1"
-              initial={{ strokeDashoffset: 1, opacity: 0 }}
+              strokeDasharray={BIG_GRID_LEN}
+              initial={{ strokeDashoffset: BIG_GRID_LEN, opacity: 0 }}
               animate={{ strokeDashoffset: 0, opacity: 1 }}
               transition={{
                 strokeDashoffset: {
-                  delay: T.bigGrid + index * 0.06,
-                  duration: 0.5,
+                  delay: T.bigGrid + index * 0.05,
+                  duration: 0.42,
                   ease: SMOOTH_EASE,
                 },
-                opacity: { delay: T.bigGrid + index * 0.06, duration: 0.01 },
+                opacity: { delay: T.bigGrid + index * 0.05, duration: 0.01 },
               }}
             />
           ))}
 
-          {/* Grandes cases gagnées, tamponnées une à une */}
+          {/* Grandes cases gagnées, posées exactement centrées avant le passage de la ligne verte */}
           {BIG_MARKS.map((mark, index) => (
             <g
               key={`${mark.col}-${mark.row}`}
               transform={`translate(${50 + mark.col * 100} ${50 + mark.row * 100})`}
             >
               <motion.g
-                initial={{ scale: 1.9, opacity: 0, rotate: mark.symbol === 'X' ? -14 : 0 }}
-                animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                style={CENTER_ORIGIN_STYLE}
+                initial={{ scale: 1.65, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
                 transition={{
                   ...STAMP_SPRING,
                   delay: T.bigMarks + index * T.bigMarkGap,
                   opacity: { delay: T.bigMarks + index * T.bigMarkGap, duration: 0.08 },
                 }}
               >
-                {/* Cadre invisible : garde le centre de transformation au milieu de la case */}
-                <rect x="-40" y="-40" width="80" height="80" fill="none" />
-                <Mark symbol={mark.symbol} size={46} stroke={9} />
+                <Mark symbol={mark.symbol} size={46} stroke={8} />
               </motion.g>
             </g>
           ))}
@@ -192,17 +220,11 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
           {/* Petit morpion : plein cadre au départ, puis simple case centrale */}
           <g transform="translate(150 150)">
             <motion.g
+              style={CENTER_ORIGIN_STYLE}
               initial={{ scale: ZOOM_START }}
               animate={{ scale: 1 }}
-              transition={{ delay: T.zoomOut, duration: 0.7, ease: [0.7, 0, 0.2, 1] }}
+              transition={{ delay: T.zoomOut, duration: 0.64, ease: [0.7, 0, 0.2, 1] }}
             >
-              <rect
-                x={-MINI_HALF - 6}
-                y={-MINI_HALF - 6}
-                width={MINI_HALF * 2 + 12}
-                height={MINI_HALF * 2 + 12}
-                fill="none"
-              />
               {[
                 `M${-MINI_CELL / 2} ${-MINI_HALF}V${MINI_HALF}`,
                 `M${MINI_CELL / 2} ${-MINI_HALF}V${MINI_HALF}`,
@@ -216,17 +238,16 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
                   strokeWidth="1.5"
                   strokeLinecap="round"
                   fill="none"
-                  pathLength={1}
-              strokeDasharray="1"
-              initial={{ strokeDashoffset: 1, opacity: 0 }}
+                  strokeDasharray={MINI_GRID_LEN}
+                  initial={{ strokeDashoffset: MINI_GRID_LEN, opacity: 0 }}
                   animate={{ strokeDashoffset: 0, opacity: 1 }}
                   transition={{
                     strokeDashoffset: {
-                      delay: T.miniGrid + index * 0.06,
-                      duration: 0.4,
+                      delay: T.miniGrid + index * 0.05,
+                      duration: 0.34,
                       ease: SMOOTH_EASE,
                     },
-                    opacity: { delay: T.miniGrid + index * 0.06, duration: 0.01 },
+                    opacity: { delay: T.miniGrid + index * 0.05, duration: 0.01 },
                   }}
                 />
               ))}
@@ -237,6 +258,7 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
                   transform={`translate(${(move.col - 1) * MINI_CELL} ${(move.row - 1) * MINI_CELL})`}
                 >
                   <motion.g
+                    style={CENTER_ORIGIN_STYLE}
                     initial={{ scale: 0, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{
@@ -245,22 +267,21 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
                       opacity: { delay: T.miniMoves + index * T.miniMoveGap, duration: 0.05 },
                     }}
                   >
-                    <rect x="-10" y="-10" width="20" height="20" fill="none" />
                     <Mark symbol={move.symbol} size={11} stroke={2.6} />
                   </motion.g>
                 </g>
               ))}
 
-              {/* Alignement du petit morpion */}
+              {/* Alignement du petit morpion : même épaisseur exacte que les X miniatures */}
               <motion.path
-                d={`M${-MINI_HALF + 3} ${-MINI_HALF + 3}L${MINI_HALF - 3} ${MINI_HALF - 3}`}
+                d={`M${-MINI_LINE_REACH} ${-MINI_LINE_REACH}L${MINI_LINE_REACH} ${MINI_LINE_REACH}`}
                 stroke="var(--accent-active)"
                 strokeWidth="2.6"
                 strokeLinecap="round"
+                shapeRendering="geometricPrecision"
                 fill="none"
-                pathLength={1}
-              strokeDasharray="1"
-              initial={{ strokeDashoffset: 1, opacity: 0 }}
+                strokeDasharray={MINI_DIAG_LEN}
+                initial={{ strokeDashoffset: MINI_DIAG_LEN, opacity: 0 }}
                 animate={{ strokeDashoffset: 0, opacity: 1 }}
                 transition={{
                   strokeDashoffset: { delay: T.miniLine, duration: 0.24, ease: SMOOTH_EASE },
@@ -270,17 +291,17 @@ export function LaunchSplash({ onDone }: LaunchSplashProps) {
             </motion.g>
           </g>
 
-          {/* Alignement du grand plateau : la petite diagonale se prolonge */}
+          {/* Alignement du grand plateau : prolonge exactement la diagonale, même épaisseur (8) que les grands X */}
           <motion.path
-            d="M20 20L280 280"
+            d={`M${BIG_LINE_START} ${BIG_LINE_START}L${BIG_LINE_END} ${BIG_LINE_END}`}
             stroke="var(--accent-active)"
-            strokeWidth="7"
+            strokeWidth="8"
             strokeLinecap="round"
+            shapeRendering="geometricPrecision"
             fill="none"
-            pathLength={1}
-              strokeDasharray="1"
-              initial={{ strokeDashoffset: 1, opacity: 0 }}
-            animate={{ strokeDashoffset: 0, opacity: 0.92 }}
+            strokeDasharray={BIG_DIAG_LEN}
+            initial={{ strokeDashoffset: BIG_DIAG_LEN, opacity: 0 }}
+            animate={{ strokeDashoffset: 0, opacity: 1 }}
             transition={{
               strokeDashoffset: { delay: T.bigLine, duration: 0.42, ease: SMOOTH_EASE },
               opacity: { delay: T.bigLine, duration: 0.01 },
