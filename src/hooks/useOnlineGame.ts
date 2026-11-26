@@ -62,6 +62,7 @@ async function apiRequest<T>(
       ? { Authorization: `Bearer ${authToken}` }
       : {};
     const res = await fetch(`/api/game${path}`, {
+      cache: 'no-store',
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -121,7 +122,14 @@ function nextPollDelay(
 ): number {
   if (typeof document !== 'undefined' && document.hidden) return 4000;
   if (!snap) return 1000;
-  if (snap.phase === 'waiting') return 950;
+  if (snap.phase === 'waiting') {
+    if (snap.countdownEndsAt) {
+      const remaining = snap.countdownEndsAt - (Date.now() + clockOffsetMs);
+      if (remaining <= 0) return 180;
+      return Math.min(400, Math.max(120, remaining + 60));
+    }
+    return 650;
+  }
   if (snap.phase === 'finished') return 1400;
   const base = isLocalTurn(snap, playerId) ? 1300 : 420;
 
@@ -501,7 +509,8 @@ export function useOnlineGame(
     }): Promise<RoomSnapshot | null> => {
       setIsBusy(true);
       setError(null);
-      lastPseudoRef.current = params.pseudo.trim() || 'Joueur 1';
+      const clean = params.pseudo.trim();
+      if (clean) lastPseudoRef.current = clean;
 
       const res = await apiRequest<{ snapshot: RoomSnapshot; version: number }>(
         '/rooms',
@@ -552,7 +561,8 @@ export function useOnlineGame(
     }): Promise<RoomSnapshot | null> => {
       setIsBusy(true);
       setError(null);
-      lastPseudoRef.current = params.pseudo.trim() || 'Joueur 2';
+      const clean = params.pseudo.trim();
+      if (clean) lastPseudoRef.current = clean;
 
       const res = await apiRequest<{ snapshot: RoomSnapshot; version: number }>(
         `/rooms/${encodeURIComponent(params.code)}/join`,
@@ -717,6 +727,30 @@ export function useOnlineGame(
     [playerId, handleIncomingSnapshot],
   );
 
+  const confirmReady = useCallback(
+    async (ready?: boolean) => {
+      const current = prevSnapshotRef.current;
+      if (!current || current.phase !== 'waiting') return;
+      const res = await apiRequest<{ snapshot: RoomSnapshot; version: number }>(
+        `/rooms/${encodeURIComponent(current.code)}/ready`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            playerId,
+            ...(typeof ready === 'boolean' ? { ready } : {}),
+          }),
+        },
+      );
+      if (res.ok && res.data) {
+        haptics.tap();
+        handleIncomingSnapshot(res.data.snapshot, res.data.version);
+      } else if (res.error) {
+        setError(res.error);
+      }
+    },
+    [playerId, handleIncomingSnapshot],
+  );
+
   const sendEmote = useCallback(
     async (emote: EmoteId): Promise<boolean> => {
       const current = prevSnapshotRef.current;
@@ -796,7 +830,8 @@ export function useOnlineGame(
   const joinMatchmaking = useCallback(
     async (params: { pseudo: string; timeControl: TimeControl }) => {
       setError(null);
-      lastPseudoRef.current = params.pseudo.trim() || 'Joueur';
+      const clean = params.pseudo.trim();
+      if (clean) lastPseudoRef.current = clean;
       setMatchmaking({
         searching: true,
         timeControl: params.timeControl,
@@ -887,6 +922,7 @@ export function useOnlineGame(
     enterRoomSnapshot,
     playMove,
     switchSeat,
+    confirmReady,
     sendEmote,
     resign,
     requestRematch,

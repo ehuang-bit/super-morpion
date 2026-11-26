@@ -10,6 +10,7 @@ import {
   parseLoginIdentifier,
   suggestUsernameBase,
   validateEmail,
+  validateGuestPseudo,
   validatePassword,
   validateUsername,
 } from '../shared/authValidation.js';
@@ -27,7 +28,9 @@ import type { Move, Player } from '../shared/gameEngine.js';
 import {
   applyEloOutcomeToRoom,
   applyMoveToStoredRoom,
+  confirmReadyStoredRoom,
   createStoredRoom,
+  findPlayerInRoom,
   generateRoomCode,
   joinStoredRoom,
   leaveStoredRoom,
@@ -209,7 +212,7 @@ async function syncTournamentRowWithRooms(
 }
 const LIVE_ROOM_WINDOW_MS = 30_000;
 /** Parties classées minimum pour apparaître au classement général. */
-const LEADERBOARD_MIN_GAMES = 3;
+const LEADERBOARD_MIN_GAMES = 1;
 
 const FIREBASE_JWKS_URL = new URL(
   'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
@@ -559,6 +562,41 @@ async function resolveIdentity(
     user: null,
     pseudo: cleanPseudo,
     profileKey: makeProfileKey(guestProfileId, cleanPseudo),
+  };
+}
+
+/**
+ * Résout l'identité du joueur pour une action multijoueur en exigeant
+ * un pseudo invité explicite (>= 2 caractères) si l'utilisateur n'est pas connecté.
+ */
+async function resolveRequiredIdentity(
+  req: Request,
+  queryable: Pick<PgClientLike, 'query'>,
+  guestProfileId: string | undefined,
+  guestPseudo: string | undefined,
+  now: number,
+): Promise<
+  | { ok: true; user: AuthUser | null; pseudo: string; profileKey: string }
+  | { ok: false; error: string }
+> {
+  const user = await resolveAuthUser(req, queryable, now);
+  if (user) {
+    return {
+      ok: true,
+      user,
+      pseudo: user.gameName || user.username,
+      profileKey: `user:${user.id}`,
+    };
+  }
+  const valid = validateGuestPseudo(guestPseudo ?? '');
+  if (!valid.ok) {
+    return { ok: false, error: valid.error };
+  }
+  return {
+    ok: true,
+    user: null,
+    pseudo: valid.pseudo,
+    profileKey: makeProfileKey(guestProfileId, valid.pseudo),
   };
 }
 
@@ -1555,15 +1593,17 @@ export async function handleGameRequest(req: Request): Promise<Response> {
 
       const timeControl = body.timeControl;
       const mode: RoomMode = body.mode === '2v2' ? '2v2' : '1v1';
-      const identity = await resolveIdentity(
+      const identityRes = await resolveRequiredIdentity(
         req,
         poolQuery,
         body.profileId ?? body.playerId,
         body.pseudo,
-        'Joueur 1',
         now,
       );
-      const { pseudo, profileKey } = identity;
+      if (!identityRes.ok) {
+        return jsonResponse({ ok: false, error: identityRes.error }, 400);
+      }
+      const { pseudo, profileKey } = identityRes;
 
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM rooms WHERE updated_at < $1', [
@@ -1583,6 +1623,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           timeControl,
           mode,
           eloProfile,
+          requireConfirm: true,
           now,
         });
 
@@ -1603,7 +1644,7 @@ export async function handleGameRequest(req: Request): Promise<Response> {
 
     // Room routes: /rooms/:code/<action>
     const roomMatch = subPath.match(
-      /^\/rooms\/([A-Za-z0-9]+)\/(peek|join|state|move|resign|rematch|leave|seat|emote)$/,
+      /^\/rooms\/([A-Za-z0-9]+)\/(peek|join|state|move|resign|rematch|leave|seat|emote|ready)$/,
     );
     if (roomMatch) {
       const code = normalizeRoomCode(roomMatch[1]);
@@ -1731,15 +1772,8 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
         }
 
-        const identity = await resolveIdentity(
-          req,
-          poolQuery,
-          body.profileId ?? body.playerId,
-          body.pseudo,
-          'Joueur',
-          now,
-        );
-        const { pseudo, profileKey } = identity;
+        const authUser = await resolveAuthUser(req, poolQuery, now);
+        const guestValid = validateGuestPseudo(body.pseudo ?? '');
 
         const result = await withTx(async (client) => {
           await client.query('DELETE FROM matchmaking_queue WHERE player_id = $1', [
@@ -1756,6 +1790,27 @@ export async function handleGameRequest(req: Request): Promise<Response> {
 
           const room = parseStoredRoom(locked.rows[0].state_json);
           const version = Number(locked.rows[0].version);
+          const alreadyInRoom = findPlayerInRoom(room, body.playerId!);
+          const isSpectatorJoin = !alreadyInRoom && toRoomPeekInfo(room, now).isFull;
+
+          let pseudo: string;
+          let profileKey: string;
+          if (authUser) {
+            pseudo = authUser.gameName || authUser.username;
+            profileKey = `user:${authUser.id}`;
+          } else if (alreadyInRoom) {
+            pseudo = alreadyInRoom.player.pseudo;
+            profileKey = alreadyInRoom.player.profileKey;
+          } else if (guestValid.ok) {
+            pseudo = guestValid.pseudo;
+            profileKey = makeProfileKey(body.profileId ?? body.playerId, pseudo);
+          } else if (isSpectatorJoin) {
+            pseudo = 'Spectateur';
+            profileKey = makeProfileKey(body.profileId ?? body.playerId, pseudo);
+          } else {
+            return { ok: false as const, status: 400, error: guestValid.error };
+          }
+
           const eloProfile = await loadEloProfile(client, profileKey);
 
           const joined = joinStoredRoom(room, {
@@ -2066,6 +2121,50 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           data: { snapshot: result.snapshot, version: result.version },
         });
       }
+
+      // POST /api/game/rooms/:code/ready — confirmation avant lancement d'un salon privé
+      if (method === 'POST' && action === 'ready') {
+        const body = await readJsonBody<{ playerId?: string; ready?: unknown }>(req);
+        if (!body?.playerId) {
+          return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
+        }
+        const readyParam = typeof body.ready === 'boolean' ? body.ready : undefined;
+
+        const result = await withTx(async (client) => {
+          const locked = await client.query(
+            'SELECT state_json, version FROM rooms WHERE code = $1 FOR UPDATE',
+            [code],
+          );
+          if (locked.rows.length === 0) {
+            return { ok: false as const, status: 404, error: 'Salon introuvable.' };
+          }
+          const room = parseStoredRoom(locked.rows[0].state_json);
+          const version = Number(locked.rows[0].version);
+          const confirmed = confirmReadyStoredRoom(room, {
+            playerId: body.playerId!,
+            ready: readyParam,
+            now,
+          });
+          if (!confirmed.ok) {
+            return { ok: false as const, status: 409, error: confirmed.error };
+          }
+          const nextVersion = version + 1;
+          await saveRoomRow(client, confirmed.room, nextVersion, now);
+          return {
+            ok: true as const,
+            snapshot: toRoomSnapshot(confirmed.room, now),
+            version: nextVersion,
+          };
+        });
+
+        if (!result.ok) {
+          return jsonResponse({ ok: false, error: result.error }, result.status);
+        }
+        return jsonResponse({
+          ok: true,
+          data: { snapshot: result.snapshot, version: result.version },
+        });
+      }
     }
 
     // POST /api/game/matchmaking/join
@@ -2082,15 +2181,17 @@ export async function handleGameRequest(req: Request): Promise<Response> {
       }
 
       const timeControl = body.timeControl;
-      const identity = await resolveIdentity(
+      const identityRes = await resolveRequiredIdentity(
         req,
         poolQuery,
         body.profileId ?? body.playerId,
         body.pseudo,
-        'Joueur',
         now,
       );
-      const { pseudo, profileKey } = identity;
+      if (!identityRes.ok) {
+        return jsonResponse({ ok: false, error: identityRes.error }, 400);
+      }
+      const { pseudo, profileKey } = identityRes;
 
       const data = await withTx(async (client) => {
         await client.query(
@@ -2306,14 +2407,16 @@ export async function handleGameRequest(req: Request): Promise<Response> {
 
       const size = body.size;
       const timeControl = body.timeControl;
-      const identity = await resolveIdentity(
+      const identity = await resolveRequiredIdentity(
         req,
         poolQuery,
         body.profileId ?? body.playerId,
         body.pseudo,
-        'Organisateur',
         now,
       );
+      if (!identity.ok) {
+        return jsonResponse({ ok: false, error: identity.error }, 400);
+      }
 
       const data = await withTx(async (client) => {
         await client.query('DELETE FROM tournaments WHERE updated_at < $1', [
@@ -2624,14 +2727,16 @@ export async function handleGameRequest(req: Request): Promise<Response> {
           return jsonResponse({ ok: false, error: 'Identifiant joueur manquant.' }, 400);
         }
 
-        const identity = await resolveIdentity(
+        const identity = await resolveRequiredIdentity(
           req,
           poolQuery,
           body.profileId ?? body.playerId,
           body.pseudo,
-          'Joueur',
           now,
         );
+        if (!identity.ok) {
+          return jsonResponse({ ok: false, error: identity.error }, 400);
+        }
 
         const result = await withTx(async (client) => {
           const locked = await client.query(

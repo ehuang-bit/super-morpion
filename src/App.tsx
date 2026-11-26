@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { validateGuestPseudo } from '@shared/authValidation';
 import { getEloTier, INITIAL_ELO } from '@shared/elo';
 import { getBotLevelProfile, type BotProgressState } from '@shared/botEngine';
 import type { DestinationPreview, Move, Player } from '@shared/gameEngine';
@@ -165,9 +166,10 @@ export function App() {
     };
   }, [botProgress.level, botProgress.wins]);
 
-  // Compte connecté : le nom en partie personnalisé prime sur le pseudo du compte
+  // Compte connecté : le nom en partie personnalisé prime sur le pseudo du compte.
+  // En mode invité, aucun pseudo générique par défaut n'est inventé.
   const activePseudo =
-    auth.user?.gameName || auth.user?.username || pseudo.trim() || 'Joueur 1';
+    auth.user?.gameName || auth.user?.username || pseudo.trim();
 
   // Keep pseudo synced when user logs in
   useEffect(() => {
@@ -526,6 +528,7 @@ export function App() {
   );
 
   const handleCreateRoom = async (mode: RoomMode = '1v1') => {
+    if (!auth.user && !validateGuestPseudo(pseudo).ok) return;
     const snap = await onlineGame.createRoom({
       pseudo: activePseudo,
       timeControl,
@@ -542,9 +545,11 @@ export function App() {
   const handleJoinByCode = async (rawCode: string) => {
     const code = normalizeRoomCode(rawCode);
     if (code.length !== 6) return;
+    const isSpectator = Boolean(onlineGame.peekInfo?.isFull);
+    if (!auth.user && !isSpectator && !validateGuestPseudo(pseudo).ok) return;
     const snap = await onlineGame.joinRoom({
       code,
-      pseudo: activePseudo,
+      pseudo: isSpectator ? activePseudo || 'Spectateur' : activePseudo,
     });
     if (snap) {
       autoAttemptedRef.current = snap.code;
@@ -647,7 +652,7 @@ export function App() {
         <main className="w-full flex-1 px-3 sm:px-6 py-3 sm:py-5">
           <TournamentView
             playerId={playerId}
-            pseudo={activePseudo}
+            pseudo={auth.user ? activePseudo : pseudo}
             onChangePseudo={handleChangePseudo}
             hasAccount={Boolean(auth.user)}
             snapshot={tournament.snapshot}
@@ -1185,6 +1190,7 @@ export function App() {
         boardPrefs={boardPrefs}
         connected={onlineGame.connected}
         connectionStatus={onlineGame.connectionStatus}
+        clockOffsetMs={onlineGame.clockOffsetMs}
         isBusy={onlineGame.isBusy}
         error={onlineGame.error}
         lobby={onlineGame.lobby}
@@ -1200,12 +1206,14 @@ export function App() {
         onCreateRoom={handleCreateRoom}
         onJoinCode={handleJoinByCode}
         onSwitchSeat={(seat) => void onlineGame.switchSeat(seat)}
-        onJoinMatchmaking={() =>
+        onConfirmReady={(ready) => void onlineGame.confirmReady(ready)}
+        onJoinMatchmaking={() => {
+          if (!auth.user && !validateGuestPseudo(pseudo).ok) return;
           void onlineGame.joinMatchmaking({
             pseudo: activePseudo,
             timeControl,
-          })
-        }
+          });
+        }}
         onCancelMatchmaking={onlineGame.cancelMatchmaking}
         onCancelWaitingOrPrompt={handleLeaveOnline}
         onOpenStats={() => setActiveTab('stats')}
@@ -1263,7 +1271,9 @@ export function App() {
           setAuthModalOpen(false);
         }}
         onClose={() => {
-          if (!auth.user) auth.continueAsGuest(pseudo);
+          if (!auth.user && validateGuestPseudo(pseudo).ok) {
+            auth.continueAsGuest(pseudo);
+          }
           setAuthModalOpen(false);
         }}
       />

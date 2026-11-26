@@ -9,6 +9,7 @@
  *
  * Ce fichier n'est chargé que si `DEMO_MODE` est vrai (voir `demoMode.ts`).
  */
+import { validateGuestPseudo } from '@shared/authValidation';
 import {
   createDefaultEloProfile,
   getEloTier,
@@ -27,6 +28,7 @@ import {
 import {
   applyEloOutcomeToRoom,
   applyMoveToStoredRoom,
+  confirmReadyStoredRoom,
   createStoredRoom,
   findPlayerInRoom,
   generateRoomCode,
@@ -116,6 +118,7 @@ const state = {
   botName: BOT_NAMES[0],
   botMoveAt: null as number | null,
   botJoins: [] as PendingBotJoin[],
+  botConfirms: [] as { id: string; at: number }[],
   botRematchAt: null as number | null,
   botEmote: null as PendingBotEmote | null,
   queue: null as { joinedAt: number; timeControl: TimeControl } | null,
@@ -376,7 +379,26 @@ function tick(now: number): void {
       if (joined.ok) {
         bump(joined.room);
         room = joined.room;
+        if (room.requireConfirm) {
+          state.botConfirms.push({ id: nextBot.id, at: now + 900 });
+        }
       }
+    }
+    while (state.botConfirms.length > 0 && now >= state.botConfirms[0].at) {
+      const nextConfirm = state.botConfirms.shift()!;
+      const readyRes = confirmReadyStoredRoom(room, {
+        playerId: nextConfirm.id,
+        ready: true,
+        now,
+      });
+      if (readyRes.ok) {
+        bump(readyRes.room);
+        room = readyRes.room;
+      }
+    }
+    const settled = settleTimeoutsAndAbandonment(room, now);
+    if (settled.changed) {
+      bump(settled.room);
     }
     return;
   }
@@ -488,6 +510,7 @@ function startRoom(
   state.botRematchAt = null;
   state.botEmote = null;
   state.botJoins = [];
+  state.botConfirms = [];
   state.script = null;
 
   let room = createStoredRoom({
@@ -498,6 +521,7 @@ function startRoom(
     timeControl,
     mode,
     eloProfile: profileOf(HUMAN_PROFILE_KEY),
+    requireConfirm: !withBot,
     now,
   });
 
@@ -519,7 +543,7 @@ function startRoom(
     if (joined.ok) room = joined.room;
   } else {
     state.botJoins = [
-      { id: BOT_ID, profileKey: BOT_PROFILE_KEY, pseudo: state.botName, at: now + 3500 },
+      { id: BOT_ID, profileKey: BOT_PROFILE_KEY, pseudo: state.botName, at: now + 2200 },
     ];
   }
 
@@ -646,7 +670,7 @@ function leaderboardPayload(now: number, isAuthed: boolean): LeaderboardPayload 
       dailyStreak: entry.dailyStreak,
     })),
     selfRank: null,
-    minGames: 3,
+    minGames: 1,
   };
 }
 
@@ -796,9 +820,16 @@ function route(
   }
 
   if (path === '/matchmaking/join') {
+    if (!isAuthed) {
+      const valid = validateGuestPseudo(typeof body.pseudo === 'string' ? body.pseudo : '');
+      if (!valid.ok) return { ok: false, error: valid.error };
+    }
+    const effectivePseudo = isAuthed && state.account
+      ? state.account.gameName || state.account.username
+      : String(body.pseudo).replace(/\s+/g, ' ').trim();
     const timeControl = (body.timeControl as TimeControl) ?? 'unlimited';
     state.humanId = playerId;
-    state.humanPseudo = pseudo;
+    state.humanPseudo = effectivePseudo;
     state.queue = { joinedAt: now, timeControl };
     return { ok: true, data: { matched: false, queueSize: 1 } };
   }
@@ -826,9 +857,16 @@ function route(
   }
 
   if (path === '/rooms' && method === 'POST') {
+    if (!isAuthed) {
+      const valid = validateGuestPseudo(typeof body.pseudo === 'string' ? body.pseudo : '');
+      if (!valid.ok) return { ok: false, error: valid.error };
+    }
+    const effectivePseudo = isAuthed && state.account
+      ? state.account.gameName || state.account.username
+      : String(body.pseudo).replace(/\s+/g, ' ').trim();
     const timeControl = (body.timeControl as TimeControl) ?? 'unlimited';
     const mode: RoomMode = body.mode === '2v2' ? '2v2' : '1v1';
-    startRoom(timeControl, pseudo, playerId, now, false, mode);
+    startRoom(timeControl, effectivePseudo, playerId, now, false, mode);
     return snapshotResponse(now);
   }
 
@@ -854,10 +892,20 @@ function route(
   }
 
   if (action === 'join') {
+    const isSpec = !findPlayerInRoom(room, playerId) && toRoomPeekInfo(room, now).isFull;
+    if (!isAuthed && !isSpec) {
+      const valid = validateGuestPseudo(typeof body.pseudo === 'string' ? body.pseudo : '');
+      if (!valid.ok) return { ok: false, error: valid.error };
+    }
+    const effectivePseudo = isAuthed && state.account
+      ? state.account.gameName || state.account.username
+      : isSpec
+        ? (typeof body.pseudo === 'string' && body.pseudo.trim()) || 'Spectateur'
+        : String(body.pseudo).replace(/\s+/g, ' ').trim();
     const joined = joinStoredRoom(room, {
       playerId,
       profileKey: HUMAN_PROFILE_KEY,
-      pseudo,
+      pseudo: effectivePseudo,
       eloProfile: profileOf(HUMAN_PROFILE_KEY),
       now,
     });
@@ -874,6 +922,17 @@ function route(
     });
     if (!switched.ok) return { ok: false, error: switched.error };
     bump(switched.room);
+    return snapshotResponse(now);
+  }
+
+  if (action === 'ready') {
+    const confirmed = confirmReadyStoredRoom(room, {
+      playerId,
+      ready: typeof body.ready === 'boolean' ? body.ready : undefined,
+      now,
+    });
+    if (!confirmed.ok) return { ok: false, error: confirmed.error };
+    bump(confirmed.room);
     return snapshotResponse(now);
   }
 

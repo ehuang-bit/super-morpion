@@ -26,6 +26,7 @@ import {
   MAX_CONSECUTIVE_MOVE_TIMEOUTS,
   MOVE_TIMEOUT_GRACE_MS,
   MOVE_TIME_LIMIT_MS,
+  ROOM_READY_COUNTDOWN_MS,
   TEAM_SEAT_FILL_ORDER,
   TEAM_SEAT_SYMBOL,
   TIME_CONTROL_MS,
@@ -90,6 +91,12 @@ export interface StoredRoom {
   /** Mode du salon : 1v1 (par défaut) ou 2v2 en équipes (AB vs CD). */
   mode?: RoomMode;
   phase: 'waiting' | 'playing' | 'finished';
+  /** Salon privé manuel : chacun confirme avant le décompte de 3,5 s. */
+  requireConfirm?: boolean;
+  /** Identifiants des joueurs ayant cliqué sur « Confirmer ». */
+  readyPlayerIds?: string[];
+  /** Horodatage (ms) de démarrage une fois tout le monde confirmé. */
+  countdownEndsAt?: number | null;
   timeControl: TimeControl;
   initialTimeMs: number | null;
   players: {
@@ -285,6 +292,7 @@ function cloneRoom(room: StoredRoom): StoredRoom {
     },
     ...(clonedSeats ? { seats: clonedSeats } : {}),
     ...(clonedSpectators ? { spectators: clonedSpectators } : {}),
+    ...(room.readyPlayerIds ? { readyPlayerIds: [...room.readyPlayerIds] } : {}),
     ...(room.lastEmote ? { lastEmote: { ...room.lastEmote } } : {}),
     ...(room.lastEmoteByPlayer
       ? { lastEmoteByPlayer: { ...room.lastEmoteByPlayer } }
@@ -300,6 +308,36 @@ function cloneRoom(room: StoredRoom): StoredRoom {
         }
       : null,
   };
+}
+
+function getRequiredPlayerIds(room: StoredRoom): string[] | null {
+  if (getRoomMode(room) === '2v2') {
+    if (!room.seats || ALL_SEATS.some((s) => room.seats![s] === null)) {
+      return null;
+    }
+    return ALL_SEATS.map((s) => room.seats![s]!.id);
+  }
+  if (!room.players.X || !room.players.O) {
+    return null;
+  }
+  return [room.players.X.id, room.players.O.id];
+}
+
+function areAllSeatedReady(room: StoredRoom): boolean {
+  const required = getRequiredPlayerIds(room);
+  if (!required) return false;
+  const readySet = new Set(room.readyPlayerIds ?? []);
+  return required.every((id) => readySet.has(id));
+}
+
+function startRoomPlay(next: StoredRoom, turnStart: number): void {
+  next.phase = 'playing';
+  next.countdownEndsAt = null;
+  if (next.requireConfirm) {
+    next.readyPlayerIds = [];
+  }
+  next.turnStartedAt = turnStart;
+  next.moveTimeouts = { X: 0, O: 0 };
 }
 
 function buildStoredPlayer(params: {
@@ -401,9 +439,11 @@ export function createStoredRoom(params: {
   mode?: RoomMode;
   eloProfile: EloProfile;
   tournament?: RoomTournamentMeta | null;
+  requireConfirm?: boolean;
   now: number;
 }): StoredRoom {
   const mode: RoomMode = params.mode === '2v2' ? '2v2' : '1v1';
+  const requireConfirm = Boolean(params.requireConfirm);
   const initialTimeMs = TIME_CONTROL_MS[params.timeControl];
   const host = buildStoredPlayer({
     playerId: params.playerId,
@@ -419,6 +459,13 @@ export function createStoredRoom(params: {
     code: normalizeRoomCode(params.code),
     mode,
     phase: 'waiting',
+    ...(requireConfirm
+      ? {
+          requireConfirm: true,
+          readyPlayerIds: [],
+          countdownEndsAt: null,
+        }
+      : {}),
     timeControl: params.timeControl,
     initialTimeMs,
     players: {
@@ -535,6 +582,9 @@ export function toRoomSnapshot(room: StoredRoom, now: number): RoomSnapshot {
     code: room.code,
     mode,
     phase: room.phase,
+    requireConfirm: Boolean(room.requireConfirm),
+    readyPlayerIds: [...(room.readyPlayerIds ?? [])],
+    countdownEndsAt: room.countdownEndsAt ?? null,
     timeControl: room.timeControl,
     initialTimeMs: room.initialTimeMs,
     players: {
@@ -599,6 +649,7 @@ export function touchPlayerPresence(
 
 /**
  * Applique tout ce que le temps écoulé implique, dans l'ordre chronologique :
+ * fin du compte à rebours d'avant-partie en salle d'attente,
  * pendule globale épuisée, coups joués d'office après dépassement de la
  * limite par coup, défaite au temps après trop de dépassements d'affilée,
  * puis abandon par déconnexion prolongée.
@@ -615,6 +666,26 @@ export function settleTimeoutsAndAbandonment(
   endedWinner: Player | null;
   endReason: EndReason | null;
 } {
+  if (room.phase === 'waiting') {
+    if (
+      room.requireConfirm &&
+      room.countdownEndsAt !== null &&
+      room.countdownEndsAt !== undefined &&
+      now >= room.countdownEndsAt
+    ) {
+      const next = cloneRoom(room);
+      if (areAllSeatedReady(next)) {
+        // Le décompte d'avant-partie vient d'expirer : lancement immédiat du match
+        startRoomPlay(next, now);
+        next.lastActivityAt = now;
+        return { room: next, changed: true, endedWinner: null, endReason: null };
+      }
+      next.countdownEndsAt = null;
+      return { room: next, changed: true, endedWinner: null, endReason: null };
+    }
+    return { room, changed: false, endedWinner: null, endReason: null };
+  }
+
   if (room.phase !== 'playing') {
     return { room, changed: false, endedWinner: null, endReason: null };
   }
@@ -840,10 +911,8 @@ export function joinStoredRoom(
     });
     syncTeamRepresentatives(next);
 
-    if (ALL_SEATS.every((s) => next.seats![s] !== null) && next.phase === 'waiting') {
-      next.phase = 'playing';
-      next.turnStartedAt = params.now + MATCH_INTRO_MS;
-      next.moveTimeouts = { X: 0, O: 0 };
+    if (!next.requireConfirm && ALL_SEATS.every((s) => next.seats![s] !== null) && next.phase === 'waiting') {
+      startRoomPlay(next, params.now + MATCH_INTRO_MS);
     }
 
     next.lastActivityAt = params.now;
@@ -893,10 +962,8 @@ export function joinStoredRoom(
     now: params.now,
   });
 
-  if (next.players.X && next.players.O && next.phase === 'waiting') {
-    next.phase = 'playing';
-    next.turnStartedAt = params.now + MATCH_INTRO_MS;
-    next.moveTimeouts = { X: 0, O: 0 };
+  if (!next.requireConfirm && next.players.X && next.players.O && next.phase === 'waiting') {
+    startRoomPlay(next, params.now + MATCH_INTRO_MS);
   }
 
   next.lastActivityAt = params.now;
@@ -913,6 +980,12 @@ export function switchSeatStoredRoom(
   }
   if (room.phase !== 'waiting') {
     return { ok: false, error: 'La partie a déjà commencé.' };
+  }
+  if (room.countdownEndsAt != null && params.now < room.countdownEndsAt) {
+    return {
+      ok: false,
+      error: 'Lancement imminent : annule ta confirmation avant de changer d’équipe.',
+    };
   }
   const found = findPlayerInRoom(room, params.playerId);
   if (!found || !found.seat) {
@@ -934,7 +1007,62 @@ export function switchSeatStoredRoom(
     symbol: TEAM_SEAT_SYMBOL[params.targetSeat],
     lastSeenAt: params.now,
   };
+  if (next.readyPlayerIds) {
+    next.readyPlayerIds = next.readyPlayerIds.filter((id) => id !== params.playerId);
+  }
+  next.countdownEndsAt = null;
   syncTeamRepresentatives(next);
+  next.lastActivityAt = params.now;
+  return { ok: true, room: next };
+}
+
+/**
+ * Confirme (ou annule) qu'un joueur assis est prêt à lancer la partie.
+ * Dès que le salon est complet et que tous ont confirmé, déclenche le compte
+ * à rebours de 3,5 s (`ROOM_READY_COUNTDOWN_MS`).
+ */
+export function confirmReadyStoredRoom(
+  room: StoredRoom,
+  params: { playerId: string; ready?: boolean; now: number },
+): { ok: true; room: StoredRoom } | { ok: false; error: string } {
+  const settled = settleTimeoutsAndAbandonment(room, params.now);
+  if (settled.room.phase !== 'waiting') {
+    return { ok: false, error: 'La partie a déjà commencé.' };
+  }
+
+  const base = settled.room;
+  const found = findPlayerInRoom(base, params.playerId);
+  if (!found) {
+    return { ok: false, error: 'Seuls les joueurs du salon peuvent confirmer.' };
+  }
+
+  const next = cloneRoom(base);
+  if (found.seat && next.seats?.[found.seat]) {
+    next.seats[found.seat]!.lastSeenAt = params.now;
+    syncTeamRepresentatives(next);
+  } else if (next.players[found.symbol]) {
+    next.players[found.symbol]!.lastSeenAt = params.now;
+  }
+
+  const seatedIds = new Set(getAllSeatedPlayers(next).map((p) => p.id));
+  const currentList = (next.readyPlayerIds ?? []).filter((id) => seatedIds.has(id));
+  const isReady = currentList.includes(params.playerId);
+  const wantReady = params.ready ?? !isReady;
+
+  if (wantReady && !isReady) {
+    currentList.push(params.playerId);
+  } else if (!wantReady && isReady) {
+    const idx = currentList.indexOf(params.playerId);
+    if (idx >= 0) currentList.splice(idx, 1);
+  }
+  next.readyPlayerIds = currentList;
+
+  if (areAllSeatedReady(next)) {
+    next.countdownEndsAt = next.countdownEndsAt ?? params.now + ROOM_READY_COUNTDOWN_MS;
+  } else {
+    next.countdownEndsAt = null;
+  }
+
   next.lastActivityAt = params.now;
   return { ok: true, room: next };
 }
@@ -1264,9 +1392,13 @@ export function leaveStoredRoom(
   const mode = getRoomMode(room);
 
   if (room.phase === 'waiting') {
-    if (mode === '2v2' && room.seats && found.seat) {
-      const next = cloneRoom(room);
-      next.seats![found.seat] = null;
+    const next = cloneRoom(room);
+    if (next.readyPlayerIds) {
+      next.readyPlayerIds = next.readyPlayerIds.filter((id) => id !== params.playerId);
+    }
+    next.countdownEndsAt = null;
+    if (mode === '2v2' && next.seats && found.seat) {
+      next.seats[found.seat] = null;
       syncTeamRepresentatives(next);
       const remaining = getAllSeatedPlayers(next);
       if (remaining.length === 0) {
@@ -1275,7 +1407,14 @@ export function leaveStoredRoom(
       next.lastActivityAt = params.now;
       return { deleted: false, room: next, endedWinner: null, endReason: null };
     }
-    return { deleted: true, room, endedWinner: null, endReason: null };
+    if (next.players[found.symbol]?.id === params.playerId) {
+      next.players[found.symbol] = null;
+    }
+    if (!next.players.X && !next.players.O) {
+      return { deleted: true, room: next, endedWinner: null, endReason: null };
+    }
+    next.lastActivityAt = params.now;
+    return { deleted: false, room: next, endedWinner: null, endReason: null };
   }
 
   const next = cloneRoom(room);

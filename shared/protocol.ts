@@ -41,6 +41,12 @@ export const MAX_CONSECUTIVE_MOVE_TIMEOUTS = 2;
 export const MATCH_INTRO_MS = 3_000;
 
 /**
+ * Délai avant le lancement d'un salon privé une fois que tous les joueurs
+ * ont confirmé leur présence (« Prêt »).
+ */
+export const ROOM_READY_COUNTDOWN_MS = 3_500;
+
+/**
  * `aborted` : partie annulée avant que chaque joueur ait joué son premier
  * coup (abandon, temps écoulé ou départ). Elle n'est pas classée.
  */
@@ -114,6 +120,12 @@ export interface RoomSnapshot {
   /** Mode du salon : 1v1 classique ou 2v2 en équipes (AB vs CD). */
   mode: RoomMode;
   phase: 'waiting' | 'playing' | 'finished';
+  /** Vrai pour un salon créé manuellement : attend que tous confirment + décompte avant de lancer. */
+  requireConfirm: boolean;
+  /** Identifiants des joueurs ayant confirmé (« Prêt ») en salle d'attente. */
+  readyPlayerIds: string[];
+  /** Horodatage serveur (ms) de fin du compte à rebours une fois tous prêts, sinon null. */
+  countdownEndsAt: number | null;
   timeControl: TimeControl;
   initialTimeMs: number | null;
   players: {

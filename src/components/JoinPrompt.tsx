@@ -1,10 +1,16 @@
-import type { FormEvent } from 'react';
-import { TIME_CONTROL_LABELS, type RoomPeekInfo } from '@shared/protocol';
-import { ArrowLeft, ArrowRight, Eye, Users } from 'lucide-react';
+import { useRef, useState, type FormEvent } from 'react';
+import { validateGuestPseudo } from '@shared/authValidation';
+import {
+  TIME_CONTROL_LABELS,
+  type AuthUser,
+  type RoomPeekInfo,
+} from '@shared/protocol';
+import { ArrowLeft, ArrowRight, Eye, UserCheck, Users } from 'lucide-react';
 import { formatRoomCode } from '../utils/format';
 
 export interface JoinPromptProps {
   code: string;
+  user?: AuthUser | null;
   pseudo: string;
   onChangePseudo: (value: string) => void;
   peekInfo: RoomPeekInfo | null;
@@ -18,6 +24,7 @@ export interface JoinPromptProps {
 
 export function JoinPrompt({
   code,
+  user = null,
   pseudo,
   onChangePseudo,
   peekInfo,
@@ -28,8 +35,20 @@ export function JoinPrompt({
   onJoin,
   onBackHome,
 }: JoinPromptProps) {
+  const [pseudoError, setPseudoError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      const check = validateGuestPseudo(pseudo);
+      if (!check.ok) {
+        setPseudoError(check.error);
+        inputRef.current?.focus();
+        return;
+      }
+    }
+    setPseudoError(null);
     onJoin();
   };
 
@@ -222,34 +241,66 @@ export function JoinPrompt({
                 className="text-xs sm:text-sm mt-0.5"
                 style={{ color: 'var(--text-secondary)' }}
               >
-                Aucun compte requis — entrez simplement votre pseudo.
+                {user
+                  ? 'Prêt à entrer dans le salon.'
+                  : 'Aucun compte requis — entre ton pseudo pour rejoindre.'}
               </p>
             </div>
 
-            <div>
-              <label
-                htmlFor="join-pseudo-input"
-                className="block text-xs font-semibold mb-1.5"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                Votre pseudo
-              </label>
-              <input
-                id="join-pseudo-input"
-                type="text"
-                maxLength={20}
-                autoFocus
-                value={pseudo}
-                onChange={(e) => onChangePseudo(e.target.value)}
-                placeholder="Ex. Théo"
-                className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-base font-medium"
+            {user ? (
+              <div
+                className="rounded-[10px] px-3 py-2.5 flex items-center gap-2 text-sm font-semibold"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border-main)',
+                  backgroundColor: 'var(--x-surface)',
+                  color: 'var(--x-color)',
+                  border: '1px solid color-mix(in srgb, var(--x-color) 35%, transparent)',
                 }}
-              />
-            </div>
+              >
+                <UserCheck className="w-4 h-4 shrink-0" />
+                <span className="truncate">{user.gameName || user.username}</span>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label
+                    htmlFor="join-pseudo-input"
+                    className="block text-xs font-semibold"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Votre pseudo <span style={{ color: 'var(--danger-color)' }}>*</span>
+                  </label>
+                  <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    Obligatoire
+                  </span>
+                </div>
+                <input
+                  ref={inputRef}
+                  id="join-pseudo-input"
+                  type="text"
+                  required
+                  maxLength={20}
+                  autoFocus
+                  value={pseudo}
+                  aria-invalid={Boolean(pseudoError)}
+                  onChange={(e) => {
+                    onChangePseudo(e.target.value);
+                    if (pseudoError) setPseudoError(null);
+                  }}
+                  placeholder="Ex. Théo"
+                  className="tactile-input w-full rounded-[10px] px-3.5 py-2.5 text-base font-medium"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    border: `1px solid ${pseudoError ? 'var(--danger-color)' : 'var(--border-main)'}`,
+                  }}
+                />
+                {pseudoError && (
+                  <p className="mt-1 text-xs font-medium" style={{ color: 'var(--danger-color)' }}>
+                    {pseudoError}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center gap-2">
               <button

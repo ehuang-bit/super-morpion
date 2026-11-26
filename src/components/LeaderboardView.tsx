@@ -25,7 +25,7 @@ export function LeaderboardView({
 }: LeaderboardViewProps) {
   const { t } = useI18n();
   const entries = data?.entries ?? [];
-  const minGames = data?.minGames ?? 3;
+  const minGames = data?.minGames ?? 1;
 
   return (
     <main className="w-full max-w-[760px] mx-auto px-3 sm:px-6 py-4 sm:py-6 flex-1 flex flex-col gap-4">
@@ -106,8 +106,8 @@ export function LeaderboardView({
             <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
               Le trône est libre.
             </p>
-            <p className="text-xs max-w-[340px]" style={{ color: 'var(--text-secondary)' }}>
-              Joue {minGames} parties classées avec un compte pour devenir le premier nom
+            <p className="text-xs max-w-[360px]" style={{ color: 'var(--text-secondary)' }}>
+              Joue {minGames <= 1 ? '1 partie classée (1v1 en ligne)' : `${minGames} parties classées (1v1 en ligne)`} avec un compte pour devenir le premier nom
               du classement.
             </p>
             <button
@@ -194,6 +194,27 @@ export function LeaderboardView({
           </ol>
         )}
       </section>
+
+      {entries.length > 0 &&
+        user &&
+        data &&
+        !entries.some((e) => e.isSelf) &&
+        !data.selfRank && (
+          <div
+            className="rounded-[12px] px-4 py-3 text-xs leading-relaxed"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-main)',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            Ton compte (<strong style={{ color: 'var(--text-primary)' }}>{user.username}</strong>) n’apparaît pas encore dans ce classement : il faut au moins{' '}
+            <strong style={{ color: 'var(--text-primary)' }}>
+              {minGames <= 1 ? '1 partie classée' : `${minGames} parties classées`}
+            </strong>{' '}
+            (duel 1v1 en ligne d’au moins 2 coups — les parties contre le bot, en 2v2 amical ou en invité ne sont pas comptabilisées).
+          </div>
+        )}
 
       {data?.selfRank && (
         <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>

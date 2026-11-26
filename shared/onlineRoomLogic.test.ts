@@ -4,6 +4,7 @@ import {
   DISCONNECT_FORFEIT_MS,
   applyEloOutcomeToRoom,
   applyMoveToStoredRoom,
+  confirmReadyStoredRoom,
   createStoredRoom,
   joinStoredRoom,
   leaveStoredRoom,
@@ -20,6 +21,7 @@ import {
   MATCH_INTRO_MS,
   MOVE_TIMEOUT_GRACE_MS,
   MOVE_TIME_LIMIT_MS,
+  ROOM_READY_COUNTDOWN_MS,
   type TimeControl,
 } from './protocol.js';
 
@@ -703,5 +705,131 @@ describe('mode 2v2 (AB vs CD, ordre A → C → B → D), spectateurs et emotes'
     expect(left.deleted).toBe(false);
     expect(left.room.phase).toBe('playing');
     expect(toRoomSnapshot(left.room, t0 + 1100).spectatorCount).toBe(0);
+  });
+
+  it('attend que tous les joueurs confirment puis lance le match après le décompte (1v1 & 2v2)', () => {
+    const t0 = 11_000_000;
+    const elo = createDefaultEloProfile();
+
+    // 1) Salon privé 1v1 : reste en attente même quand p2 rejoint
+    const r0 = createStoredRoom({
+      code: 'CONF11',
+      playerId: 'p1',
+      profileKey: 'k1',
+      pseudo: 'Jonathan',
+      timeControl: 'rapid',
+      requireConfirm: true,
+      eloProfile: elo,
+      now: t0,
+    });
+    const j1 = joinStoredRoom(r0, {
+      playerId: 'p2',
+      profileKey: 'k2',
+      pseudo: 'Théo',
+      eloProfile: elo,
+      now: t0 + 100,
+    });
+    expect(j1.ok).toBe(true);
+    if (!j1.ok) return;
+    expect(j1.room.phase).toBe('waiting');
+    expect(j1.room.countdownEndsAt).toBeNull();
+
+    // p1 confirme seul -> pas encore de compte à rebours
+    const c1 = confirmReadyStoredRoom(j1.room, { playerId: 'p1', ready: true, now: t0 + 200 });
+    expect(c1.ok).toBe(true);
+    if (!c1.ok) return;
+    expect(c1.room.readyPlayerIds).toEqual(['p1']);
+    expect(c1.room.countdownEndsAt).toBeNull();
+
+    // p2 confirme -> compte à rebours de 3,5 s déclenché
+    const c2 = confirmReadyStoredRoom(c1.room, { playerId: 'p2', ready: true, now: t0 + 300 });
+    expect(c2.ok).toBe(true);
+    if (!c2.ok) return;
+    expect(c2.room.readyPlayerIds).toEqual(['p1', 'p2']);
+    expect(c2.room.countdownEndsAt).toBe(t0 + 300 + ROOM_READY_COUNTDOWN_MS);
+    expect(c2.room.phase).toBe('waiting');
+
+    // Si p1 annule, le compte à rebours s'arrête proprement
+    const cancel1 = confirmReadyStoredRoom(c2.room, { playerId: 'p1', ready: false, now: t0 + 500 });
+    expect(cancel1.ok).toBe(true);
+    if (!cancel1.ok) return;
+    expect(cancel1.room.countdownEndsAt).toBeNull();
+
+    // Reconfirmation -> avant l'échéance reste waiting, à l'échéance passe playing
+    const re1 = confirmReadyStoredRoom(cancel1.room, { playerId: 'p1', ready: true, now: t0 + 600 });
+    if (!re1.ok) throw new Error('reconfirm failed');
+    const targetEnd = t0 + 600 + ROOM_READY_COUNTDOWN_MS;
+    expect(re1.room.countdownEndsAt).toBe(targetEnd);
+
+    const tooEarly = settleTimeoutsAndAbandonment(re1.room, targetEnd - 1);
+    expect(tooEarly.changed).toBe(false);
+    expect(tooEarly.room.phase).toBe('waiting');
+
+    const started = settleTimeoutsAndAbandonment(re1.room, targetEnd);
+    expect(started.changed).toBe(true);
+    expect(started.room.phase).toBe('playing');
+    expect(started.room.countdownEndsAt).toBeNull();
+    expect(started.room.turnStartedAt).toBe(targetEnd);
+
+    // Si p2 quitte un salon 1v1 en waiting, le salon reste ouvert pour p1
+    const leftO = leaveStoredRoom(re1.room, { playerId: 'p2', now: t0 + 700 });
+    expect(leftO.deleted).toBe(false);
+    expect(leftO.room.players.X?.id).toBe('p1');
+    expect(leftO.room.players.O).toBeNull();
+    expect(leftO.room.countdownEndsAt).toBeNull();
+
+    // 2) Salon privé 2v2 : les 4 places doivent confirmer, changer de siège annule son prêt
+    let r2 = createStoredRoom({
+      code: 'CONF22',
+      playerId: 'pA',
+      profileKey: 'kA',
+      pseudo: 'Alice',
+      timeControl: 'unlimited',
+      mode: '2v2',
+      requireConfirm: true,
+      eloProfile: elo,
+      now: t0,
+    });
+    for (const [idx, pid] of (['pC', 'pB'] as const).entries()) {
+      const jr = joinStoredRoom(r2, {
+        playerId: pid,
+        profileKey: `k${pid}`,
+        pseudo: `J${idx}`,
+        eloProfile: elo,
+        now: t0 + 100 * (idx + 1),
+      });
+      if (!jr.ok) throw new Error('2v2 join failed');
+      r2 = jr.room;
+    }
+    const readyC = confirmReadyStoredRoom(r2, { playerId: 'pC', ready: true, now: t0 + 350 });
+    if (!readyC.ok) throw new Error('readyC failed');
+    // Changer de siège retire sa confirmation
+    const sw = switchSeatStoredRoom(readyC.room, { playerId: 'pC', targetSeat: 'D', now: t0 + 380 });
+    if (!sw.ok) throw new Error('switch failed');
+    expect(sw.room.readyPlayerIds).toEqual([]);
+
+    const jD = joinStoredRoom(sw.room, {
+      playerId: 'pD',
+      profileKey: 'kD',
+      pseudo: 'David',
+      eloProfile: elo,
+      now: t0 + 400,
+    });
+    if (!jD.ok) throw new Error('jD failed');
+    let lobby2v2 = jD.room;
+    expect(lobby2v2.phase).toBe('waiting');
+
+    for (const [idx, pid] of (['pA', 'pB', 'pC', 'pD'] as const).entries()) {
+      const cf = confirmReadyStoredRoom(lobby2v2, { playerId: pid, ready: true, now: t0 + 500 + idx * 50 });
+      if (!cf.ok) throw new Error('2v2 confirm failed');
+      lobby2v2 = cf.room;
+    }
+    expect(lobby2v2.countdownEndsAt).toBe(t0 + 650 + ROOM_READY_COUNTDOWN_MS);
+    const blockedSwitch = switchSeatStoredRoom(lobby2v2, { playerId: 'pA', targetSeat: 'C', now: t0 + 700 });
+    expect(blockedSwitch.ok).toBe(false);
+
+    const launched2v2 = settleTimeoutsAndAbandonment(lobby2v2, t0 + 650 + ROOM_READY_COUNTDOWN_MS);
+    expect(launched2v2.changed).toBe(true);
+    expect(launched2v2.room.phase).toBe('playing');
   });
 });

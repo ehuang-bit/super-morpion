@@ -47,6 +47,35 @@ export function validateUsername(
   };
 }
 
+/**
+ * Pseudo d'un joueur invité (2 à 20 caractères). Obligatoire avant d'entrer
+ * dans une partie, un salon privé ou un tournoi en ligne.
+ */
+export function validateGuestPseudo(
+  raw: string,
+): { ok: true; pseudo: string } | { ok: false; error: string } {
+  const cleaned = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (cleaned.length < 2) {
+    return {
+      ok: false,
+      error: 'Entre ton pseudo (2 caractères min.) pour jouer en ligne.',
+    };
+  }
+  if (cleaned.length > 20) {
+    return {
+      ok: false,
+      error: 'Le pseudo est limité à 20 caractères.',
+    };
+  }
+  if (!/^[\p{L}\p{N}_ -]{2,20}$/u.test(cleaned)) {
+    return {
+      ok: false,
+      error: 'Utilisez uniquement des lettres, chiffres, espaces, tirets ou _.',
+    };
+  }
+  return { ok: true, pseudo: cleaned };
+}
+
 export function validatePassword(
   raw: string,
 ): { ok: true; password: string } | { ok: false; error: string } {

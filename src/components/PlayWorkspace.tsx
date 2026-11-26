@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { validateGuestPseudo } from '@shared/authValidation';
 import { formatRating, type EloProfile } from '@shared/elo';
 import {
   BOARD_COORDS,
@@ -73,6 +74,7 @@ interface PlayWorkspaceProps {
   boardPrefs: BoardPreferences;
   connected: boolean;
   connectionStatus: ConnectionStatus;
+  clockOffsetMs?: number;
   isBusy: boolean;
   error: string | null;
   lobby: LobbyStats | null;
@@ -88,6 +90,7 @@ interface PlayWorkspaceProps {
   onCreateRoom: (mode: RoomMode) => void;
   onJoinCode: (code: string) => void;
   onSwitchSeat?: (seat: TeamSeat) => void;
+  onConfirmReady?: (ready: boolean) => void;
   onJoinMatchmaking: () => void;
   onCancelMatchmaking: () => void;
   onCancelWaitingOrPrompt: () => void;
@@ -142,6 +145,7 @@ export function PlayWorkspace({
   boardPrefs,
   connected,
   connectionStatus,
+  clockOffsetMs = 0,
   isBusy,
   error,
   lobby,
@@ -153,6 +157,7 @@ export function PlayWorkspace({
   onCreateRoom,
   onJoinCode,
   onSwitchSeat,
+  onConfirmReady,
   onJoinMatchmaking,
   onCancelMatchmaking,
   onCancelWaitingOrPrompt,
@@ -168,6 +173,7 @@ export function PlayWorkspace({
   const [joinCode, setJoinCode] = useState('');
   const [showJoinCode, setShowJoinCode] = useState(false);
   const [friendMode, setFriendMode] = useState<RoomMode>('1v1');
+  const [pseudoError, setPseudoError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const dailyInfo = getDailyPuzzle(new Date());
   const dailyStatus = getDailyStatus(new Date());
@@ -221,6 +227,28 @@ export function PlayWorkspace({
 
   const boardSectionRef = useRef<HTMLElement>(null);
   const joinInputRef = useRef<HTMLInputElement>(null);
+  const pseudoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (user) setPseudoError(null);
+  }, [user]);
+
+  const ensureOnlinePseudo = useCallback((): boolean => {
+    if (user) {
+      setPseudoError(null);
+      return true;
+    }
+    const check = validateGuestPseudo(pseudo);
+    if (!check.ok) {
+      setPseudoError(check.error);
+      pseudoInputRef.current?.focus();
+      pseudoInputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      haptics.tap();
+      return false;
+    }
+    setPseudoError(null);
+    return true;
+  }, [user, pseudo]);
 
   const startTutorial = useCallback(() => {
     saveTutorialSeen();
@@ -310,6 +338,7 @@ export function PlayWorkspace({
   const handleJoinSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (matchmaking.searching) return;
+    if (!ensureOnlinePseudo()) return;
     const cleaned = normalizeRoomCode(joinCode);
     if (cleaned.length === 6) {
       onJoinCode(cleaned);
@@ -487,7 +516,7 @@ export function PlayWorkspace({
                       type="button"
                       onClick={() => {
                         endTutorial();
-                        if (canLaunch && !matchmaking.searching) {
+                        if (canLaunch && !matchmaking.searching && ensureOnlinePseudo()) {
                           onJoinMatchmaking();
                         }
                       }}
@@ -543,7 +572,11 @@ export function PlayWorkspace({
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   {waitingSnapshot
-                    ? `Salon #${waitingSnapshot.code} · En attente d’adversaire…`
+                    ? waitingSnapshot.countdownEndsAt
+                      ? `Salon #${waitingSnapshot.code} · Lancement imminent…`
+                      : waitingSnapshot.requireConfirm
+                        ? `Salon #${waitingSnapshot.code} · En attente de confirmation…`
+                        : `Salon #${waitingSnapshot.code} · En attente d’adversaire…`
                     : boardHint}
                 </span>
               </div>
@@ -586,12 +619,16 @@ export function PlayWorkspace({
             <WaitingLobby
               snapshot={waitingSnapshot}
               localPlayerId={localPlayerId}
+              clockOffsetMs={clockOffsetMs}
+              isBusy={isBusy}
               onSwitchSeat={onSwitchSeat}
+              onConfirmReady={onConfirmReady}
               onCancel={onCancelWaitingOrPrompt}
             />
           ) : routeRoomCode ? (
             <JoinPrompt
               code={routeRoomCode}
+              user={user}
               pseudo={pseudo}
               onChangePseudo={onChangePseudo}
               peekInfo={peekInfo}
@@ -721,7 +758,7 @@ export function PlayWorkspace({
                   />
                 )}
 
-                {/* Pseudo, pour les invités seulement */}
+                {/* Pseudo, pour les invités seulement (obligatoire) */}
                 {!user && (
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-1">
@@ -730,7 +767,8 @@ export function PlayWorkspace({
                         className="text-xs font-semibold"
                         style={{ color: 'var(--text-secondary)' }}
                       >
-                        {t('play.pseudoGuest')}
+                        {t('play.pseudoGuest')}{' '}
+                        <span style={{ color: 'var(--danger-color)' }}>*</span>
                       </label>
                       <button
                         type="button"
@@ -747,19 +785,39 @@ export function PlayWorkspace({
                       </button>
                     </div>
                     <input
+                      ref={pseudoInputRef}
                       id="play-pseudo-input"
                       type="text"
+                      required
                       maxLength={20}
                       value={pseudo}
-                      onChange={(e) => onChangePseudo(e.target.value)}
+                      aria-invalid={Boolean(pseudoError)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChangePseudo(val);
+                        if (pseudoError && validateGuestPseudo(val).ok) {
+                          setPseudoError(null);
+                        }
+                      }}
                       placeholder={t('play.pseudoPlaceholder')}
                       className="tactile-input w-full rounded-[10px] px-3 py-2 text-sm font-medium"
                       style={{
                         backgroundColor: 'var(--bg-surface)',
                         color: 'var(--text-primary)',
-                        border: '1px solid var(--border-main)',
+                        border: `1px solid ${pseudoError ? 'var(--danger-color)' : 'var(--border-main)'}`,
                       }}
                     />
+                    {pseudoError ? (
+                      <p className="mt-1 text-xs font-medium" style={{ color: 'var(--danger-color)' }}>
+                        {pseudoError}
+                      </p>
+                    ) : (
+                      pseudo.trim().length < 2 && (
+                        <p className="mt-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          Obligatoire (2 caractères min.) pour jouer en ligne.
+                        </p>
+                      )
+                    )}
                   </div>
                 )}
 
@@ -910,7 +968,9 @@ export function PlayWorkspace({
                 ) : (
                   <button
                     type="button"
-                    onClick={onJoinMatchmaking}
+                    onClick={() => {
+                      if (ensureOnlinePseudo()) onJoinMatchmaking();
+                    }}
                     disabled={!canLaunch}
                     className="tactile-btn cta-primary w-full rounded-[14px] px-4 py-3.5 flex items-center justify-between gap-3 disabled:opacity-50"
                     style={{
@@ -1014,7 +1074,9 @@ export function PlayWorkspace({
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => onCreateRoom(friendMode)}
+                      onClick={() => {
+                        if (ensureOnlinePseudo()) onCreateRoom(friendMode);
+                      }}
                       disabled={!canLaunch || matchmaking.searching}
                       className={`tactile-btn rounded-[11px] px-2.5 py-2.5 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed ${
                         matchmaking.searching ? '' : 'disabled:opacity-50'

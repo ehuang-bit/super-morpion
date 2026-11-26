@@ -3,6 +3,7 @@ import {
   parseLoginIdentifier,
   suggestUsernameBase,
   validateEmail,
+  validateGuestPseudo,
   validatePassword,
   validateUsername,
 } from './authValidation.js';
@@ -31,6 +32,19 @@ describe('authValidation', () => {
     });
     expect(validateUsername('ab')).toMatchObject({ ok: false });
     expect(validateUsername('alice@gmail.com')).toMatchObject({ ok: false });
+  });
+
+  it('requires a valid guest pseudo (2 to 20 chars)', () => {
+    expect(validateGuestPseudo('  Jo  ')).toEqual({ ok: true, pseudo: 'Jo' });
+    expect(validateGuestPseudo('  Jonathan   B ')).toEqual({
+      ok: true,
+      pseudo: 'Jonathan B',
+    });
+    expect(validateGuestPseudo('')).toMatchObject({ ok: false });
+    expect(validateGuestPseudo('   ')).toMatchObject({ ok: false });
+    expect(validateGuestPseudo('A')).toMatchObject({ ok: false });
+    expect(validateGuestPseudo('a'.repeat(21))).toMatchObject({ ok: false });
+    expect(validateGuestPseudo('Bad@Name')).toMatchObject({ ok: false });
   });
 
   it('validates password length bounds', () => {

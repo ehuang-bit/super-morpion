@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { validateGuestPseudo } from '@shared/authValidation';
 import {
   ArrowLeft,
   Check,
@@ -168,6 +169,8 @@ export function AuthModal({
   const [showPassword, setShowPassword] = useState(false);
   const [showEmailPassword, setShowEmailPassword] = useState(false);
   const [guestName, setGuestName] = useState(defaultPseudo || '');
+  const [guestError, setGuestError] = useState<string | null>(null);
+  const guestInputRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState('');
   const [chosenName, setChosenName] = useState('');
   const [busyProvider, setBusyProvider] = useState<SocialProvider | null>(null);
@@ -279,7 +282,14 @@ export function AuthModal({
   };
 
   const handleGuestClick = () => {
-    onContinueAsGuest(guestName.trim() || defaultPseudo.trim() || t('nav.guest'));
+    const check = validateGuestPseudo(guestName);
+    if (!check.ok) {
+      setGuestError(check.error);
+      guestInputRef.current?.focus();
+      return;
+    }
+    setGuestError(null);
+    onContinueAsGuest(check.pseudo);
   };
 
   const renderHeader = (title: string, subtitle: ReactNode, back?: View) => (
@@ -566,14 +576,25 @@ export function AuthModal({
 
       <div className="flex items-center gap-2">
         <input
+          ref={guestInputRef}
+          id="auth-guest-input"
           type="text"
           maxLength={20}
           value={guestName}
-          onChange={(e) => setGuestName(e.target.value)}
+          aria-invalid={Boolean(guestError)}
+          onChange={(e) => {
+            setGuestName(e.target.value);
+            if (guestError && validateGuestPseudo(e.target.value).ok) {
+              setGuestError(null);
+            }
+          }}
           placeholder={t('auth.guestPlaceholder')}
           aria-label={t('auth.guestPlaceholder')}
           className="tactile-input flex-1 min-w-0 rounded-[10px] px-3 py-2 text-sm font-medium"
-          style={inputStyle()}
+          style={{
+            ...inputStyle(),
+            border: `1px solid ${guestError ? 'var(--danger-color)' : 'var(--border-main)'}`,
+          }}
         />
         <button
           type="button"
@@ -589,6 +610,11 @@ export function AuthModal({
           <span>{t('auth.guestBtn')}</span>
         </button>
       </div>
+      {guestError && (
+        <p className="text-xs font-medium -mt-1.5" style={{ color: 'var(--danger-color)' }}>
+          {guestError}
+        </p>
+      )}
       <p className="text-[11px] -mt-1.5" style={{ color: 'var(--text-muted)' }}>
         {t('auth.guestTransferNote')}
       </p>

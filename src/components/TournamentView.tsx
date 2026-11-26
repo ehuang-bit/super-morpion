@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { validateGuestPseudo } from '@shared/authValidation';
 import type {
   RoomSnapshot,
   TimeControl,
@@ -103,6 +104,29 @@ export function TournamentView({
   // Create form state
   const [nameInput, setNameInput] = useState('');
   const [size, setSize] = useState<TournamentSize>(8);
+  const [pseudoError, setPseudoError] = useState<string | null>(null);
+  const pseudoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (hasAccount) setPseudoError(null);
+  }, [hasAccount]);
+
+  const ensureTournamentPseudo = (): boolean => {
+    if (hasAccount) {
+      setPseudoError(null);
+      return true;
+    }
+    const check = validateGuestPseudo(pseudo);
+    if (!check.ok) {
+      setPseudoError(check.error);
+      pseudoInputRef.current?.focus();
+      pseudoInputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      haptics.tap();
+      return false;
+    }
+    setPseudoError(null);
+    return true;
+  };
   const [timeControl, setTimeControl] = useState<TimeControl>('rapid');
 
   // Join form state
@@ -240,27 +264,46 @@ export function TournamentView({
 
             {!hasAccount && (
               <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="trn-pseudo-input"
-                  className="text-xs font-semibold"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  {t('play.pseudoGuest')}
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    htmlFor="trn-pseudo-input"
+                    className="text-xs font-semibold"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {t('play.pseudoGuest')}{' '}
+                    <span style={{ color: 'var(--danger-color)' }}>*</span>
+                  </label>
+                  <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    Obligatoire
+                  </span>
+                </div>
                 <input
+                  ref={pseudoInputRef}
                   id="trn-pseudo-input"
                   type="text"
+                  required
                   maxLength={20}
                   value={pseudo}
-                  onChange={(e) => onChangePseudo(e.target.value)}
+                  aria-invalid={Boolean(pseudoError)}
+                  onChange={(e) => {
+                    onChangePseudo(e.target.value);
+                    if (pseudoError && validateGuestPseudo(e.target.value).ok) {
+                      setPseudoError(null);
+                    }
+                  }}
                   placeholder={t('play.pseudoPlaceholder')}
                   className="tactile-input w-full rounded-[10px] px-3 py-2 text-sm font-medium"
                   style={{
                     backgroundColor: 'var(--bg-surface)',
                     color: 'var(--text-primary)',
-                    border: '1px solid var(--border-main)',
+                    border: `1px solid ${pseudoError ? 'var(--danger-color)' : 'var(--border-main)'}`,
                   }}
                 />
+                {pseudoError && (
+                  <p className="text-xs font-medium" style={{ color: 'var(--danger-color)' }}>
+                    {pseudoError}
+                  </p>
+                )}
               </div>
             )}
 
@@ -402,14 +445,15 @@ export function TournamentView({
             <button
               type="button"
               disabled={loading}
-              onClick={() =>
+              onClick={() => {
+                if (!ensureTournamentPseudo()) return;
                 void onCreate({
                   name: nameInput,
                   size,
                   timeControl,
                   pseudo,
-                })
-              }
+                });
+              }}
               className="tactile-btn cta-primary w-full rounded-[12px] px-4 py-3 text-sm font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50"
               style={{
                 backgroundColor: 'var(--btn-primary-bg)',
@@ -449,6 +493,7 @@ export function TournamentView({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!ensureTournamentPseudo()) return;
                 if (cleanCode.length === 6) {
                   void onJoin({ code: cleanCode, pseudo });
                 }
@@ -766,19 +811,55 @@ export function TournamentView({
               </p>
 
               {!isParticipant ? (
-                <button
-                  type="button"
-                  disabled={loading || isFull}
-                  onClick={() => void onJoin({ code: snapshot.code, pseudo })}
-                  className="tactile-btn shrink-0 rounded-[10px] px-4 py-2.5 text-xs font-bold inline-flex items-center justify-center gap-1.5 disabled:opacity-45"
-                  style={{
-                    backgroundColor: 'var(--accent-active)',
-                    color: 'var(--bg-board)',
-                  }}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>{t('trn.joinBtn')}</span>
-                </button>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2 w-full sm:w-auto">
+                  {!hasAccount && (
+                    <div className="flex flex-col gap-1 min-w-[160px]">
+                      <input
+                        ref={pseudoInputRef}
+                        type="text"
+                        required
+                        maxLength={20}
+                        value={pseudo}
+                        aria-label={t('play.pseudoGuest')}
+                        aria-invalid={Boolean(pseudoError)}
+                        onChange={(e) => {
+                          onChangePseudo(e.target.value);
+                          if (pseudoError && validateGuestPseudo(e.target.value).ok) {
+                            setPseudoError(null);
+                          }
+                        }}
+                        placeholder={`${t('play.pseudoGuest')} *`}
+                        className="tactile-input rounded-[10px] px-3 py-2 text-xs font-medium"
+                        style={{
+                          backgroundColor: 'var(--bg-board)',
+                          color: 'var(--text-primary)',
+                          border: `1px solid ${pseudoError ? 'var(--danger-color)' : 'var(--border-main)'}`,
+                        }}
+                      />
+                      {pseudoError && (
+                        <span className="text-[11px] font-medium" style={{ color: 'var(--danger-color)' }}>
+                          {pseudoError}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={loading || isFull}
+                    onClick={() => {
+                      if (!ensureTournamentPseudo()) return;
+                      void onJoin({ code: snapshot.code, pseudo });
+                    }}
+                    className="tactile-btn shrink-0 rounded-[10px] px-4 py-2.5 text-xs font-bold inline-flex items-center justify-center gap-1.5 disabled:opacity-45"
+                    style={{
+                      backgroundColor: 'var(--accent-active)',
+                      color: 'var(--bg-board)',
+                    }}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>{t('trn.joinBtn')}</span>
+                  </button>
+                </div>
               ) : isHost ? (
                 <button
                   type="button"
